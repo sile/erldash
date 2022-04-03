@@ -1,6 +1,7 @@
 use clap::Parser;
 use erl_dist::term::{Atom, FixInteger, List, Map, Term};
 use std::collections::BTreeMap;
+use std::time::Duration;
 
 #[derive(Debug, Parser)]
 struct Args {
@@ -33,6 +34,9 @@ fn main() -> anyhow::Result<()> {
         let data = msacc.get_stats().await?;
         println!("{:?}", data);
 
+        println!("System Realtime: {:?}", data.system_realtime());
+        println!("System Runtime: {:?}", data.system_runtime());
+
         Ok(())
     })
 }
@@ -49,15 +53,33 @@ fn find_cookie() -> anyhow::Result<String> {
 #[derive(Debug)]
 struct Msacc {
     rpc: erl_rpc::RpcClientHandle,
+    time_unit: u32,
 }
 
 impl Msacc {
     async fn start(mut rpc: erl_rpc::RpcClientHandle) -> anyhow::Result<Self> {
+        let time_unit: FixInteger = rpc
+            .call(
+                "erlang".into(),
+                "convert_time_unit".into(),
+                List::from(vec![
+                    FixInteger::from(1).into(),
+                    FixInteger::from(1).into(),
+                    Atom::from("native").into(),
+                ]),
+            )
+            .await?
+            .try_into()
+            .map_err(|_| anyhow::anyhow!("not an integer"))?;
+
         let _already_started = rpc
             .call("msacc".into(), "start".into(), List::nil())
             .await?;
-        dbg!(_already_started);
-        Ok(Self { rpc })
+
+        Ok(Self {
+            rpc,
+            time_unit: time_unit.value as u32,
+        })
     }
 
     async fn get_stats(&mut self) -> anyhow::Result<MsaccData> {
@@ -65,7 +87,7 @@ impl Msacc {
             .rpc
             .call("msacc".into(), "stats".into(), List::nil())
             .await?;
-        MsaccData::from_term(stats)
+        MsaccData::from_term(stats, self.time_unit)
     }
 }
 
@@ -174,16 +196,45 @@ enum MsaccType {
 #[derive(Debug)]
 struct MsaccData {
     pub threads: Vec<MsaccDataThread>,
+    pub time_unit: u32,
 }
 
 impl MsaccData {
-    fn from_term(term: Term) -> anyhow::Result<Self> {
+    fn from_term(term: Term, time_unit: u32) -> anyhow::Result<Self> {
         let list: List = term.try_into().map_err(|_| anyhow::anyhow!("not a list"))?;
         let mut threads = Vec::new();
         for msacc_data_thread in list.elements {
             threads.push(MsaccDataThread::from_term(msacc_data_thread)?);
         }
-        Ok(Self { threads })
+        Ok(Self { threads, time_unit })
+    }
+
+    fn to_duration(&self, t: u64) -> Duration {
+        Duration::from_secs_f64(t as f64 / self.time_unit as f64)
+    }
+
+    fn system_realtime(&self) -> Duration {
+        let t = self
+            .threads
+            .iter()
+            .map(|t| t.counters.values().copied().sum::<u64>())
+            .sum();
+        self.to_duration(t)
+    }
+
+    fn system_runtime(&self) -> Duration {
+        let t = self
+            .threads
+            .iter()
+            .map(|t| {
+                t.counters
+                    .iter()
+                    .filter(|x| *x.0 != MsaccState::Sleep)
+                    .map(|x| x.1)
+                    .sum::<u64>()
+            })
+            .sum();
+        self.to_duration(t)
     }
 }
 
