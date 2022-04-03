@@ -6,6 +6,9 @@ use std::time::Duration;
 struct Args {
     erlang_node: erl_dist::node::NodeName, // TODO: make this optional
 
+    #[clap(long, default_value_t = 1.0)]
+    interval: f32,
+
     #[clap(long)]
     cookie: Option<String>,
 }
@@ -18,6 +21,7 @@ fn main() -> anyhow::Result<()> {
     } else {
         find_cookie()?
     };
+    let interval = Duration::from_secs_f32(args.interval);
 
     smol::block_on(async {
         let client = erl_rpc::RpcClient::connect(&args.erlang_node.to_string(), &cookie).await?;
@@ -30,13 +34,12 @@ fn main() -> anyhow::Result<()> {
         .detach();
 
         let mut msacc = Msacc::start(handle).await?;
-        let data = msacc.get_stats().await?;
-
-        println!("System Realtime: {:?}", data.system_realtime());
-        println!("System Runtime: {:?}", data.system_runtime());
-        println!("Type Stats: {:?}", data.type_stats());
-
-        Ok(())
+        loop {
+            let data = msacc.get_stats(interval).await?;
+            println!("System Realtime: {:?}", data.system_realtime());
+            println!("System Runtime: {:?}", data.system_runtime());
+            println!("Type Stats: {:?}", data.type_stats());
+        }
     })
 }
 
@@ -71,33 +74,26 @@ impl Msacc {
             .try_into()
             .map_err(|_| anyhow::anyhow!("not an integer"))?;
 
-        let _already_started = rpc
-            .call("msacc".into(), "start".into(), List::nil())
-            .await?;
-
         Ok(Self {
             rpc,
             time_unit: time_unit.value as u32,
         })
     }
 
-    async fn get_stats(&mut self) -> anyhow::Result<MsaccData> {
+    async fn get_stats(&mut self, interval: Duration) -> anyhow::Result<MsaccData> {
+        self.rpc
+            .call(
+                "msacc".into(),
+                "start".into(),
+                List::from(vec![FixInteger::from(interval.as_millis() as i32).into()]),
+            )
+            .await?;
+
         let stats = self
             .rpc
             .call("msacc".into(), "stats".into(), List::nil())
             .await?;
         MsaccData::from_term(stats, self.time_unit)
-    }
-}
-
-impl Drop for Msacc {
-    fn drop(&mut self) {
-        let mut rpc = self.rpc.clone();
-        smol::spawn(async move {
-            let _ = rpc.call("msacc".into(), "stop".into(), List::nil()).await;
-        })
-        .detach();
-        std::thread::sleep(std::time::Duration::from_millis(100));
     }
 }
 
