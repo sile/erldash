@@ -61,7 +61,7 @@ fn main() -> anyhow::Result<()> {
 
             let data = msacc.get_stats(interval).await?;
             app.history.push_back(data);
-            if app.history.len() > 100 {
+            if app.history.len() > 60 {
                 // TODO:
                 app.history.pop_front();
             }
@@ -145,6 +145,7 @@ impl MsaccDataThread {
 
         let msacc_data_counters: Map = remove_map_entry(&mut map, "counters")?;
         let mut counters = MsaccCounters::default();
+        counters.count = 1;
         for (k, v) in msacc_data_counters.entries {
             let v: u64 = match v {
                 Term::FixInteger(v) => v.value.try_into()?,
@@ -198,6 +199,7 @@ struct MsaccCounters {
     send: Duration,
     sleep: Duration,
     timers: Duration,
+    count: usize,
 }
 
 impl MsaccCounters {
@@ -236,7 +238,11 @@ impl MsaccCounters {
             + self.timers
     }
 
-    fn add_assign(&mut self, other: &Self) {
+    fn runtime_sum_avg(&self) -> Duration {
+        self.runtime_sum() / self.count as u32
+    }
+
+    fn merge(&mut self, other: &Self) {
         self.alloc += other.alloc;
         self.aux += other.aux;
         self.bif += other.bif;
@@ -252,6 +258,7 @@ impl MsaccCounters {
         self.send += other.send;
         self.sleep += other.sleep;
         self.timers += other.timers;
+        self.count += other.count;
     }
 }
 
@@ -298,30 +305,28 @@ impl MsaccData {
         self.threads.iter().map(|t| t.counters.runtime_sum()).sum()
     }
 
-    fn scheduler_runtime_avg(&self) -> Duration {
-        let mut total = Duration::from_secs(0);
-        let mut count = 0;
-        for x in self.threads.iter().filter(|x| x.ty == MsaccType::Scheduler) {
-            total += x.counters.runtime_sum();
-            count += 1;
-        }
-        total / count
-    }
-
     fn type_stats(&self) -> MsaccTypeStats {
         let mut stats = MsaccTypeStats::default();
         for thread in &self.threads {
             match thread.ty {
-                MsaccType::Scheduler => stats.scheduler.add_assign(&thread.counters),
-                MsaccType::Async => stats.r#async.add_assign(&thread.counters),
-                MsaccType::Aux => stats.aux.add_assign(&thread.counters),
+                MsaccType::Scheduler => {
+                    stats.scheduler.merge(&thread.counters);
+                }
+                MsaccType::Async => {
+                    stats.r#async.merge(&thread.counters);
+                }
+                MsaccType::Aux => {
+                    stats.aux.merge(&thread.counters);
+                }
                 MsaccType::DirtyCpuScheduler => {
-                    stats.dirty_cpu_scheduler.add_assign(&thread.counters)
+                    stats.dirty_cpu_scheduler.merge(&thread.counters);
                 }
                 MsaccType::DirtyIoScheduler => {
-                    stats.dirty_io_scheduler.add_assign(&thread.counters)
+                    stats.dirty_io_scheduler.merge(&thread.counters);
                 }
-                MsaccType::Poll => stats.poll.add_assign(&thread.counters),
+                MsaccType::Poll => {
+                    stats.poll.merge(&thread.counters);
+                }
             }
         }
         stats
@@ -355,17 +360,50 @@ struct App {
 }
 
 impl App {
-    fn system_runtime_data(&self) -> Vec<(f64, f64)> {
-        self.history
-            .iter()
-            .enumerate()
-            .map(|(i, d)| {
-                let x = i as f64;
-                let y = d.scheduler_runtime_avg().as_secs_f64() / self.interval.as_secs_f64();
-                (x, y * 100.0)
-            })
-            .collect()
+    fn to_percent(&self, d: Duration) -> f64 {
+        d.as_secs_f64() / self.interval.as_secs_f64() * 100.0
     }
+
+    fn utilization(&self) -> Utilization {
+        let mut scheduler_data = Vec::new();
+        let mut aux_data = Vec::new();
+        let mut async_data = Vec::new();
+        let mut dirty_cpu_scheduler_data = Vec::new();
+        let mut dirty_io_scheduler_data = Vec::new();
+        let mut poll_data = Vec::new();
+
+        for (i, d) in self.history.iter().enumerate() {
+            let i = i as f64;
+            let ts = d.type_stats();
+            scheduler_data.push((i, self.to_percent(ts.scheduler.runtime_sum_avg())));
+            aux_data.push((i, self.to_percent(ts.aux.runtime_sum_avg())));
+            async_data.push((i, self.to_percent(ts.r#async.runtime_sum_avg())));
+            dirty_cpu_scheduler_data
+                .push((i, self.to_percent(ts.dirty_cpu_scheduler.runtime_sum_avg())));
+            dirty_io_scheduler_data
+                .push((i, self.to_percent(ts.dirty_io_scheduler.runtime_sum_avg())));
+            poll_data.push((i, self.to_percent(ts.poll.runtime_sum_avg())));
+        }
+
+        Utilization {
+            scheduler_data,
+            aux_data,
+            async_data,
+            dirty_cpu_scheduler_data,
+            dirty_io_scheduler_data,
+            poll_data,
+        }
+    }
+}
+
+#[derive(Debug)]
+struct Utilization {
+    scheduler_data: Vec<(f64, f64)>,
+    aux_data: Vec<(f64, f64)>,
+    async_data: Vec<(f64, f64)>,
+    dirty_cpu_scheduler_data: Vec<(f64, f64)>,
+    dirty_io_scheduler_data: Vec<(f64, f64)>,
+    poll_data: Vec<(f64, f64)>,
 }
 
 fn ui<B: tui::backend::Backend>(f: &mut tui::Frame<B>, app: &App) {
@@ -375,22 +413,51 @@ fn ui<B: tui::backend::Backend>(f: &mut tui::Frame<B>, app: &App) {
         .constraints([tui::layout::Constraint::Ratio(1, 1)].as_ref())
         .split(size);
     let x_labels = vec![tui::text::Span::styled(
-        "Scheduler Usage",
+        "Utilization",
         tui::style::Style::default().add_modifier(tui::style::Modifier::BOLD),
     )];
 
-    let system_runtime_data = app.system_runtime_data();
-    let datasets = vec![tui::widgets::Dataset::default()
-        .name("System Runtime")
-        .marker(tui::symbols::Marker::Braille)
-        .style(tui::style::Style::default().fg(tui::style::Color::Yellow))
-        .data(&system_runtime_data)];
+    let util = app.utilization();
+    let datasets = vec![
+        tui::widgets::Dataset::default()
+            .name("Aux")
+            .marker(tui::symbols::Marker::Braille)
+            .style(tui::style::Style::default().fg(tui::style::Color::Cyan))
+            .data(&util.aux_data),
+        tui::widgets::Dataset::default()
+            .name("Async")
+            .marker(tui::symbols::Marker::Braille)
+            .style(tui::style::Style::default().fg(tui::style::Color::Blue))
+            .data(&util.async_data),
+        tui::widgets::Dataset::default()
+            .name("Poll")
+            .marker(tui::symbols::Marker::Braille)
+            .style(tui::style::Style::default().fg(tui::style::Color::White))
+            .data(&util.poll_data),
+        tui::widgets::Dataset::default()
+            .name("Scheduler")
+            .marker(tui::symbols::Marker::Braille)
+            .style(tui::style::Style::default().fg(tui::style::Color::Yellow))
+            .data(&util.scheduler_data)
+            .graph_type(tui::widgets::GraphType::Line),
+        tui::widgets::Dataset::default()
+            .name("Dirty I/O Scheduler")
+            .marker(tui::symbols::Marker::Braille)
+            .style(tui::style::Style::default().fg(tui::style::Color::Green))
+            .data(&util.dirty_io_scheduler_data)
+            .graph_type(tui::widgets::GraphType::Line),
+        tui::widgets::Dataset::default()
+            .name("Dirty CPU Scheduler")
+            .marker(tui::symbols::Marker::Braille)
+            .style(tui::style::Style::default().fg(tui::style::Color::Gray))
+            .data(&util.dirty_cpu_scheduler_data),
+    ];
 
     let chart = tui::widgets::Chart::new(datasets)
         .block(
             tui::widgets::Block::default()
                 .title(tui::text::Span::styled(
-                    "Scheduler Usage",
+                    "Utilization",
                     tui::style::Style::default()
                         .fg(tui::style::Color::Cyan)
                         .add_modifier(tui::style::Modifier::BOLD),
@@ -402,11 +469,11 @@ fn ui<B: tui::backend::Backend>(f: &mut tui::Frame<B>, app: &App) {
                 .title("Time")
                 .style(tui::style::Style::default().fg(tui::style::Color::Gray))
                 .labels(x_labels)
-                .bounds([0.0, 100.0]), //TODO: app.window),
+                .bounds([0.0, 60.0]),
         )
         .y_axis(
             tui::widgets::Axis::default()
-                .title("Usage (%)")
+                .title("%")
                 .style(tui::style::Style::default().fg(tui::style::Color::Gray))
                 .labels(vec![
                     tui::text::Span::styled(
