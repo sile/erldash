@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1"
 clap = { version = "3", features = ["derive"] }
+crossterm = "0.23"
 dirs = "4"
 erl_dist = "0.5"
 erl_rpc = "0.1"

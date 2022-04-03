@@ -1,5 +1,6 @@
 use clap::Parser;
 use erl_dist::term::{Atom, FixInteger, List, Map, Term};
+use std::collections::VecDeque;
 use std::time::Duration;
 
 #[derive(Debug, Parser)]
@@ -23,7 +24,18 @@ fn main() -> anyhow::Result<()> {
     };
     let interval = Duration::from_secs_f32(args.interval);
 
-    smol::block_on(async {
+    // Setup terminal.
+    crossterm::terminal::enable_raw_mode()?;
+    let mut stdout = std::io::stdout();
+    crossterm::execute!(
+        stdout,
+        crossterm::terminal::EnterAlternateScreen,
+        crossterm::event::EnableMouseCapture
+    )?;
+    let backend = tui::backend::CrosstermBackend::new(stdout);
+    let mut terminal = tui::Terminal::new(backend)?;
+
+    let result: anyhow::Result<()> = smol::block_on(async {
         let client = erl_rpc::RpcClient::connect(&args.erlang_node.to_string(), &cookie).await?;
         let handle = client.handle();
         smol::spawn(async {
@@ -33,14 +45,41 @@ fn main() -> anyhow::Result<()> {
         })
         .detach();
 
+        let mut app = App {
+            history: VecDeque::new(),
+            interval,
+        };
         let mut msacc = Msacc::start(handle).await?;
         loop {
+            if crossterm::event::poll(std::time::Duration::from_secs(0))? {
+                if let crossterm::event::Event::Key(key) = crossterm::event::read()? {
+                    if let crossterm::event::KeyCode::Char('q') = key.code {
+                        return Ok(());
+                    }
+                }
+            }
+
             let data = msacc.get_stats(interval).await?;
-            println!("System Realtime: {:?}", data.system_realtime());
-            println!("System Runtime: {:?}", data.system_runtime());
-            println!("Type Stats: {:?}", data.type_stats());
+            app.history.push_back(data);
+            if app.history.len() > 100 {
+                // TODO:
+                app.history.pop_front();
+            }
+
+            terminal.draw(|f| ui(f, &app))?;
         }
-    })
+    });
+
+    // Restore terminal.
+    crossterm::terminal::disable_raw_mode()?;
+    crossterm::execute!(
+        terminal.backend_mut(),
+        crossterm::terminal::LeaveAlternateScreen,
+        crossterm::event::DisableMouseCapture
+    )?;
+    terminal.show_cursor()?;
+
+    result
 }
 
 fn find_cookie() -> anyhow::Result<String> {
@@ -52,32 +91,16 @@ fn find_cookie() -> anyhow::Result<String> {
     }
 }
 
+const TIME_UNIT: u32 = 1_000_000; // us
+
 #[derive(Debug)]
 struct Msacc {
     rpc: erl_rpc::RpcClientHandle,
-    time_unit: u32,
 }
 
 impl Msacc {
     async fn start(mut rpc: erl_rpc::RpcClientHandle) -> anyhow::Result<Self> {
-        let time_unit: FixInteger = rpc
-            .call(
-                "erlang".into(),
-                "convert_time_unit".into(),
-                List::from(vec![
-                    FixInteger::from(1).into(),
-                    FixInteger::from(1).into(),
-                    Atom::from("native").into(),
-                ]),
-            )
-            .await?
-            .try_into()
-            .map_err(|_| anyhow::anyhow!("not an integer"))?;
-
-        Ok(Self {
-            rpc,
-            time_unit: time_unit.value as u32,
-        })
+        Ok(Self { rpc })
     }
 
     async fn get_stats(&mut self, interval: Duration) -> anyhow::Result<MsaccData> {
@@ -93,7 +116,7 @@ impl Msacc {
             .rpc
             .call("msacc".into(), "stats".into(), List::nil())
             .await?;
-        MsaccData::from_term(stats, self.time_unit)
+        MsaccData::from_term(stats, TIME_UNIT)
     }
 }
 
@@ -275,6 +298,16 @@ impl MsaccData {
         self.threads.iter().map(|t| t.counters.runtime_sum()).sum()
     }
 
+    fn scheduler_runtime_avg(&self) -> Duration {
+        let mut total = Duration::from_secs(0);
+        let mut count = 0;
+        for x in self.threads.iter().filter(|x| x.ty == MsaccType::Scheduler) {
+            total += x.counters.runtime_sum();
+            count += 1;
+        }
+        total / count
+    }
+
     fn type_stats(&self) -> MsaccTypeStats {
         let mut stats = MsaccTypeStats::default();
         for thread in &self.threads {
@@ -313,4 +346,83 @@ where
     let (_, v) = map.entries.swap_remove(pos);
     v.try_into()
         .map_err(|t| anyhow::anyhow!("unexpected term type: {}", t))
+}
+
+#[derive(Debug, Default)]
+struct App {
+    history: VecDeque<MsaccData>,
+    interval: Duration,
+}
+
+impl App {
+    fn system_runtime_data(&self) -> Vec<(f64, f64)> {
+        self.history
+            .iter()
+            .enumerate()
+            .map(|(i, d)| {
+                let x = i as f64;
+                let y = d.scheduler_runtime_avg().as_secs_f64() / self.interval.as_secs_f64();
+                (x, y * 100.0)
+            })
+            .collect()
+    }
+}
+
+fn ui<B: tui::backend::Backend>(f: &mut tui::Frame<B>, app: &App) {
+    let size = f.size();
+    let chunks = tui::layout::Layout::default()
+        .direction(tui::layout::Direction::Vertical)
+        .constraints([tui::layout::Constraint::Ratio(1, 1)].as_ref())
+        .split(size);
+    let x_labels = vec![tui::text::Span::styled(
+        "Scheduler Usage",
+        tui::style::Style::default().add_modifier(tui::style::Modifier::BOLD),
+    )];
+
+    let system_runtime_data = app.system_runtime_data();
+    let datasets = vec![tui::widgets::Dataset::default()
+        .name("System Runtime")
+        .marker(tui::symbols::Marker::Braille)
+        .style(tui::style::Style::default().fg(tui::style::Color::Yellow))
+        .data(&system_runtime_data)];
+
+    let chart = tui::widgets::Chart::new(datasets)
+        .block(
+            tui::widgets::Block::default()
+                .title(tui::text::Span::styled(
+                    "Scheduler Usage",
+                    tui::style::Style::default()
+                        .fg(tui::style::Color::Cyan)
+                        .add_modifier(tui::style::Modifier::BOLD),
+                ))
+                .borders(tui::widgets::Borders::ALL),
+        )
+        .x_axis(
+            tui::widgets::Axis::default()
+                .title("Time")
+                .style(tui::style::Style::default().fg(tui::style::Color::Gray))
+                .labels(x_labels)
+                .bounds([0.0, 100.0]), //TODO: app.window),
+        )
+        .y_axis(
+            tui::widgets::Axis::default()
+                .title("Usage (%)")
+                .style(tui::style::Style::default().fg(tui::style::Color::Gray))
+                .labels(vec![
+                    tui::text::Span::styled(
+                        "0",
+                        tui::style::Style::default().add_modifier(tui::style::Modifier::BOLD),
+                    ),
+                    tui::text::Span::styled(
+                        "50",
+                        tui::style::Style::default().add_modifier(tui::style::Modifier::BOLD),
+                    ),
+                    tui::text::Span::styled(
+                        "100",
+                        tui::style::Style::default().add_modifier(tui::style::Modifier::BOLD),
+                    ),
+                ])
+                .bounds([0.0, 100.0]),
+        );
+    f.render_widget(chart, chunks[0]);
 }
