@@ -409,11 +409,17 @@ struct Utilization {
 fn ui<B: tui::backend::Backend>(f: &mut tui::Frame<B>, app: &App) {
     let size = f.size();
     let chunks = tui::layout::Layout::default()
-        .direction(tui::layout::Direction::Vertical)
-        .constraints([tui::layout::Constraint::Ratio(1, 1)].as_ref())
+        .direction(tui::layout::Direction::Horizontal)
+        .constraints(
+            [
+                tui::layout::Constraint::Percentage(80),
+                tui::layout::Constraint::Percentage(20),
+            ]
+            .as_ref(),
+        )
         .split(size);
     let x_labels = vec![tui::text::Span::styled(
-        "Utilization",
+        "Utilization per Type",
         tui::style::Style::default().add_modifier(tui::style::Modifier::BOLD),
     )];
 
@@ -457,7 +463,7 @@ fn ui<B: tui::backend::Backend>(f: &mut tui::Frame<B>, app: &App) {
         .block(
             tui::widgets::Block::default()
                 .title(tui::text::Span::styled(
-                    "Utilization",
+                    "Utilization per Type",
                     tui::style::Style::default()
                         .fg(tui::style::Color::Cyan)
                         .add_modifier(tui::style::Modifier::BOLD),
@@ -492,4 +498,40 @@ fn ui<B: tui::backend::Backend>(f: &mut tui::Frame<B>, app: &App) {
                 .bounds([0.0, 100.0]),
         );
     f.render_widget(chart, chunks[0]);
+
+    let mut items: Vec<tui::widgets::ListItem> = Vec::new();
+    items.push(tui::widgets::ListItem::new(vec![
+        tui::text::Spans::from(format!(
+            "Aux:                 {:.3} %",
+            util.aux_data.last().unwrap().1
+        )),
+        tui::text::Spans::from(format!(
+            "Async:               {:.3} %",
+            util.async_data.last().unwrap().1
+        )),
+        tui::text::Spans::from(format!(
+            "Poll:                {:.3} %",
+            util.poll_data.last().unwrap().1
+        )),
+        tui::text::Spans::from(format!(
+            "Scheduler:           {:.3} %",
+            util.scheduler_data.last().unwrap().1
+        )),
+        tui::text::Spans::from(format!(
+            "Dirty I/O Scheduler: {:.3} %",
+            util.dirty_io_scheduler_data.last().unwrap().1
+        )),
+        tui::text::Spans::from(format!(
+            "Dirty CPU Scheduler: {:.3} %",
+            util.dirty_cpu_scheduler_data.last().unwrap().1
+        )),
+    ]));
+    let list = tui::widgets::List::new(items)
+        .block(
+            tui::widgets::Block::default()
+                .borders(tui::widgets::Borders::ALL)
+                .title("List"),
+        )
+        .start_corner(tui::layout::Corner::TopLeft);
+    f.render_widget(list, chunks[1]);
 }
