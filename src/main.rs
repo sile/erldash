@@ -502,27 +502,27 @@ fn ui<B: tui::backend::Backend>(f: &mut tui::Frame<B>, app: &App) {
     let mut items: Vec<tui::widgets::ListItem> = Vec::new();
     items.push(tui::widgets::ListItem::new(vec![
         tui::text::Spans::from(format!(
-            "Aux:                 {:.3} %",
+            "Aux:                {:6.2} %",
             util.aux_data.last().unwrap().1
         )),
         tui::text::Spans::from(format!(
-            "Async:               {:.3} %",
+            "Async:              {:6.2} %",
             util.async_data.last().unwrap().1
         )),
         tui::text::Spans::from(format!(
-            "Poll:                {:.3} %",
+            "Poll:               {:6.2} %",
             util.poll_data.last().unwrap().1
         )),
         tui::text::Spans::from(format!(
-            "Scheduler:           {:.3} %",
+            "Scheduler:          {:6.2} %",
             util.scheduler_data.last().unwrap().1
         )),
         tui::text::Spans::from(format!(
-            "Dirty I/O Scheduler: {:.3} %",
+            "Dirty I/O Scheduler:{:6.2} %",
             util.dirty_io_scheduler_data.last().unwrap().1
         )),
         tui::text::Spans::from(format!(
-            "Dirty CPU Scheduler: {:.3} %",
+            "Dirty CPU Scheduler:{:6.2} %",
             util.dirty_cpu_scheduler_data.last().unwrap().1
         )),
     ]));
