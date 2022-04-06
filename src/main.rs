@@ -408,6 +408,16 @@ struct Utilization {
 
 fn ui<B: tui::backend::Backend>(f: &mut tui::Frame<B>, app: &App) {
     let size = f.size();
+    let top_chunks = tui::layout::Layout::default()
+        .direction(tui::layout::Direction::Vertical)
+        .constraints(
+            [
+                tui::layout::Constraint::Percentage(80),
+                tui::layout::Constraint::Percentage(20),
+            ]
+            .as_ref(),
+        )
+        .split(size);
     let chunks = tui::layout::Layout::default()
         .direction(tui::layout::Direction::Horizontal)
         .constraints(
@@ -417,7 +427,7 @@ fn ui<B: tui::backend::Backend>(f: &mut tui::Frame<B>, app: &App) {
             ]
             .as_ref(),
         )
-        .split(size);
+        .split(top_chunks[0]);
     let x_labels = vec![tui::text::Span::styled(
         "Utilization per Type",
         tui::style::Style::default().add_modifier(tui::style::Modifier::BOLD),
