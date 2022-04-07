@@ -11,7 +11,7 @@ pub struct RpcClient {
 }
 
 impl RpcClient {
-    pub async fn new(erlang_node: &NodeName, cookie: &str) -> anyhow::Result<Self> {
+    pub async fn connect(erlang_node: &NodeName, cookie: &str) -> anyhow::Result<Self> {
         let client = erl_rpc::RpcClient::connect(&erlang_node.to_string(), cookie).await?;
         let handle = client.handle();
         let (err_tx, err_rx) = oneshot::channel();
@@ -39,5 +39,14 @@ impl RpcClient {
 impl Drop for RpcClient {
     fn drop(&mut self) {
         self.handle.terminate();
+    }
+}
+
+pub fn find_cookie() -> anyhow::Result<String> {
+    if let Some(dir) = dirs::home_dir().filter(|dir| dir.join(".erlang.cookie").exists()) {
+        let cookie = std::fs::read_to_string(dir.join(".erlang.cookie"))?;
+        Ok(cookie)
+    } else {
+        anyhow::bail!("Could not find the cookie file $HOME/.erlang.cookie. Please specify `-cookie` arg instead.");
     }
 }

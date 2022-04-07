@@ -334,6 +334,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "erldash"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "crossterm 0.23.1",
+ "dirs",
+ "erl_dist",
+ "erl_rpc",
+ "futures",
+ "smol",
+ "tui",
+]
+
+[[package]]
 name = "event-listener"
 version = "2.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -586,21 +601,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b9f1c5b025cda876f66ef43a113f91ebc9f4ccef34843000e0adf6ebbab84e21"
 dependencies = [
  "winapi",
-]
-
-[[package]]
-name = "msacc"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "crossterm 0.23.1",
- "dirs",
- "erl_dist",
- "erl_rpc",
- "futures",
- "smol",
- "tui",
 ]
 
 [[package]]
