@@ -325,8 +325,6 @@ dependencies = [
 [[package]]
 name = "erl_rpc"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dd6d2df6412d70100ce9cab10d04dfaf49f45abffc46d5509c3f65e2151cc45f"
 dependencies = [
  "erl_dist",
  "futures",
@@ -600,6 +598,7 @@ dependencies = [
  "dirs",
  "erl_dist",
  "erl_rpc",
+ "futures",
  "smol",
  "tui",
 ]

@@ -12,5 +12,9 @@ crossterm = "0.23"
 dirs = "4"
 erl_dist = "0.5"
 erl_rpc = "0.1"
+futures = "0.3"
 smol = "1"
 tui = "0.17"
+
+[patch."crates-io"]
+erl_rpc = {path = "../erl_rpc/"}
