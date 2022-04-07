@@ -1,7 +1,7 @@
 use clap::Parser;
-use msacc::erlang;
-use msacc::erlang::msacc::MsaccData;
-use std::collections::VecDeque;
+use erldash::erlang;
+use erldash::erlang::msacc;
+use std::collections::{BTreeMap, VecDeque};
 use std::time::Duration;
 
 #[derive(Debug, Parser)]
@@ -41,7 +41,6 @@ fn main() -> anyhow::Result<()> {
 
         let mut app = App {
             history: VecDeque::new(),
-            interval,
         };
         loop {
             if crossterm::event::poll(std::time::Duration::from_secs(0))? {
@@ -77,55 +76,20 @@ fn main() -> anyhow::Result<()> {
 
 #[derive(Debug, Default)]
 struct App {
-    history: VecDeque<MsaccData>,
-    interval: Duration,
+    history: VecDeque<msacc::MsaccData>,
 }
 
 impl App {
-    fn to_percent(&self, d: Duration) -> f64 {
-        d.as_secs_f64() / self.interval.as_secs_f64() * 100.0
-    }
-
-    fn utilization(&self) -> Utilization {
-        let mut scheduler_data = Vec::new();
-        let mut aux_data = Vec::new();
-        let mut async_data = Vec::new();
-        let mut dirty_cpu_scheduler_data = Vec::new();
-        let mut dirty_io_scheduler_data = Vec::new();
-        let mut poll_data = Vec::new();
-
+    fn utilization_per_type(&self) -> BTreeMap<msacc::MsaccThreadType, Vec<(f64, f64)>> {
+        let mut result = BTreeMap::<_, Vec<_>>::new();
         for (i, d) in self.history.iter().enumerate() {
-            let i = i as f64;
-            let ts = d.type_stats();
-            scheduler_data.push((i, self.to_percent(ts.scheduler.runtime_sum_avg())));
-            aux_data.push((i, self.to_percent(ts.aux.runtime_sum_avg())));
-            async_data.push((i, self.to_percent(ts.r#async.runtime_sum_avg())));
-            dirty_cpu_scheduler_data
-                .push((i, self.to_percent(ts.dirty_cpu_scheduler.runtime_sum_avg())));
-            dirty_io_scheduler_data
-                .push((i, self.to_percent(ts.dirty_io_scheduler.runtime_sum_avg())));
-            poll_data.push((i, self.to_percent(ts.poll.runtime_sum_avg())));
+            let x = i as f64;
+            for (ty, y) in d.get_utilization_per_type() {
+                result.entry(ty).or_default().push((x, y));
+            }
         }
-
-        Utilization {
-            scheduler_data,
-            aux_data,
-            async_data,
-            dirty_cpu_scheduler_data,
-            dirty_io_scheduler_data,
-            poll_data,
-        }
+        result
     }
-}
-
-#[derive(Debug)]
-struct Utilization {
-    scheduler_data: Vec<(f64, f64)>,
-    aux_data: Vec<(f64, f64)>,
-    async_data: Vec<(f64, f64)>,
-    dirty_cpu_scheduler_data: Vec<(f64, f64)>,
-    dirty_io_scheduler_data: Vec<(f64, f64)>,
-    poll_data: Vec<(f64, f64)>,
 }
 
 fn ui<B: tui::backend::Backend>(f: &mut tui::Frame<B>, app: &App) {
@@ -150,46 +114,21 @@ fn ui<B: tui::backend::Backend>(f: &mut tui::Frame<B>, app: &App) {
             .as_ref(),
         )
         .split(top_chunks[0]);
-    let x_labels = vec![tui::text::Span::styled(
-        "Utilization per Type",
-        tui::style::Style::default().add_modifier(tui::style::Modifier::BOLD),
-    )];
 
-    let util = app.utilization();
-    let datasets = vec![
-        tui::widgets::Dataset::default()
-            .name("Aux")
-            .marker(tui::symbols::Marker::Braille)
-            .style(tui::style::Style::default().fg(tui::style::Color::Cyan))
-            .data(&util.aux_data),
-        tui::widgets::Dataset::default()
-            .name("Async")
-            .marker(tui::symbols::Marker::Braille)
-            .style(tui::style::Style::default().fg(tui::style::Color::Blue))
-            .data(&util.async_data),
-        tui::widgets::Dataset::default()
-            .name("Poll")
-            .marker(tui::symbols::Marker::Braille)
-            .style(tui::style::Style::default().fg(tui::style::Color::White))
-            .data(&util.poll_data),
-        tui::widgets::Dataset::default()
-            .name("Scheduler")
-            .marker(tui::symbols::Marker::Braille)
-            .style(tui::style::Style::default().fg(tui::style::Color::Yellow))
-            .data(&util.scheduler_data)
-            .graph_type(tui::widgets::GraphType::Line),
-        tui::widgets::Dataset::default()
-            .name("Dirty I/O Scheduler")
-            .marker(tui::symbols::Marker::Braille)
-            .style(tui::style::Style::default().fg(tui::style::Color::Green))
-            .data(&util.dirty_io_scheduler_data)
-            .graph_type(tui::widgets::GraphType::Line),
-        tui::widgets::Dataset::default()
-            .name("Dirty CPU Scheduler")
-            .marker(tui::symbols::Marker::Braille)
-            .style(tui::style::Style::default().fg(tui::style::Color::Gray))
-            .data(&util.dirty_cpu_scheduler_data),
-    ];
+    let util = app.utilization_per_type();
+    let datasets = util
+        .iter()
+        .enumerate()
+        .map(|(i, (ty, data))| {
+            let color = erldash::color::PALETTE[i % erldash::color::PALETTE.len()];
+            tui::widgets::Dataset::default()
+                .name(ty)
+                .marker(tui::symbols::Marker::Braille)
+                .graph_type(tui::widgets::GraphType::Line)
+                .style(tui::style::Style::default().fg(color))
+                .data(data)
+        })
+        .collect::<Vec<_>>();
 
     let chart = tui::widgets::Chart::new(datasets)
         .block(
@@ -204,14 +143,12 @@ fn ui<B: tui::backend::Backend>(f: &mut tui::Frame<B>, app: &App) {
         )
         .x_axis(
             tui::widgets::Axis::default()
-                .title("Time")
                 .style(tui::style::Style::default().fg(tui::style::Color::Gray))
-                .labels(x_labels)
                 .bounds([0.0, 60.0]),
         )
         .y_axis(
             tui::widgets::Axis::default()
-                .title("%")
+                .title("Utilization (%)")
                 .style(tui::style::Style::default().fg(tui::style::Color::Gray))
                 .labels(vec![
                     tui::text::Span::styled(
@@ -231,33 +168,29 @@ fn ui<B: tui::backend::Backend>(f: &mut tui::Frame<B>, app: &App) {
         );
     f.render_widget(chart, chunks[0]);
 
+    let width = util.keys().map(|k| k.len()).max().unwrap(); // TODO
     let mut items: Vec<tui::widgets::ListItem> = Vec::new();
-    items.push(tui::widgets::ListItem::new(vec![
-        tui::text::Spans::from(format!(
-            "Aux:                {:6.2} %",
-            util.aux_data.last().unwrap().1
-        )),
-        tui::text::Spans::from(format!(
-            "Async:              {:6.2} %",
-            util.async_data.last().unwrap().1
-        )),
-        tui::text::Spans::from(format!(
-            "Poll:               {:6.2} %",
-            util.poll_data.last().unwrap().1
-        )),
-        tui::text::Spans::from(format!(
-            "Scheduler:          {:6.2} %",
-            util.scheduler_data.last().unwrap().1
-        )),
-        tui::text::Spans::from(format!(
-            "Dirty I/O Scheduler:{:6.2} %",
-            util.dirty_io_scheduler_data.last().unwrap().1
-        )),
-        tui::text::Spans::from(format!(
-            "Dirty CPU Scheduler:{:6.2} %",
-            util.dirty_cpu_scheduler_data.last().unwrap().1
-        )),
-    ]));
+    items.push(tui::widgets::ListItem::new(
+        util.iter()
+            .enumerate()
+            .map(|(i, (ty, data))| {
+                let color = erldash::color::PALETTE[i % erldash::color::PALETTE.len()];
+                let s = tui::style::Style::default()
+                    .fg(color)
+                    .add_modifier(tui::style::Modifier::BOLD);
+                let span = tui::text::Span::styled(
+                    format!(
+                        "{:width$}:{:6.2} %",
+                        ty,
+                        data.last().unwrap().1,
+                        width = width
+                    ),
+                    s,
+                );
+                tui::text::Spans::from(vec![span])
+            })
+            .collect::<Vec<_>>(),
+    ));
     let list = tui::widgets::List::new(items)
         .block(
             tui::widgets::Block::default()

@@ -1,6 +1,6 @@
 use erl_dist::term::{Atom, FixInteger, List, Map, Term};
 use erl_rpc::RpcClientHandle;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
 
 pub(crate) async fn get_msacc_stats(
@@ -21,8 +21,11 @@ pub(crate) async fn get_msacc_stats(
     MsaccData::new(stats, duration)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct MsaccThreadId(pub i32);
+const THREAD_STATE_SLEEP: &str = "sleep";
+
+pub type MsaccThreadId = i32;
+pub type MsaccThreadType = String;
+pub type MsaccThreadState = String;
 
 #[derive(Debug, Clone)]
 pub struct MsaccData {
@@ -39,13 +42,35 @@ impl MsaccData {
         }
         Ok(Self { threads, duration })
     }
+
+    pub fn get_utilization_per_type(&self) -> BTreeMap<MsaccThreadType, f64> {
+        let mut aggregated = BTreeMap::<_, (BTreeSet<MsaccThreadId>, Duration)>::new();
+        for thread in &self.threads {
+            let x = aggregated.entry(&thread.thread_type).or_default();
+            x.0.insert(thread.thread_id);
+            x.1 += thread
+                .counters
+                .iter()
+                .filter(|(state, _)| state.as_str() != THREAD_STATE_SLEEP)
+                .map(|(_, c)| *c)
+                .sum();
+        }
+        aggregated
+            .into_iter()
+            .map(|(ty, (ids, c))| {
+                let k = ty.to_owned();
+                let v = c.as_secs_f64() / ids.len() as f64 / self.duration.as_secs_f64() * 100.0;
+                (k, v)
+            })
+            .collect()
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct MsaccDataThread {
     pub thread_id: MsaccThreadId,
-    pub thread_type: String,
-    pub counters: BTreeMap<String, Duration>,
+    pub thread_type: MsaccThreadType,
+    pub counters: BTreeMap<MsaccThreadState, Duration>,
 }
 
 impl MsaccDataThread {
@@ -68,7 +93,7 @@ impl MsaccDataThread {
         }
 
         Ok(Self {
-            thread_id: MsaccThreadId(id.value),
+            thread_id: id.value,
             thread_type: ty.name,
             counters,
         })
