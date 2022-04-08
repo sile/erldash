@@ -1,6 +1,6 @@
 use erl_dist::term::{Atom, FixInteger, List, Map, Term};
 use erl_rpc::RpcClientHandle;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::time::Duration;
 
 pub(crate) async fn get_msacc_stats(
@@ -44,25 +44,55 @@ impl MsaccData {
     }
 
     pub fn get_utilization_per_type(&self) -> BTreeMap<MsaccThreadType, f64> {
-        let mut aggregated = BTreeMap::<_, (BTreeSet<MsaccThreadId>, Duration)>::new();
+        let mut aggregated = BTreeMap::<_, Time>::new();
         for thread in &self.threads {
             let x = aggregated.entry(&thread.thread_type).or_default();
-            x.0.insert(thread.thread_id);
-            x.1 += thread
-                .counters
-                .iter()
-                .filter(|(state, _)| state.as_str() != THREAD_STATE_SLEEP)
-                .map(|(_, c)| *c)
-                .sum();
+            let realtime = thread.counters.values().copied().sum();
+            x.realtime += realtime;
+            x.runtime += realtime - thread.sleep_time();
+            x.count += 1;
         }
         aggregated
             .into_iter()
-            .map(|(ty, (ids, c))| {
-                let k = ty.to_owned();
-                let v = c.as_secs_f64() / ids.len() as f64 / self.duration.as_secs_f64() * 100.0;
+            .map(|(k, v)| (format!("{}({})", k, v.count), v.utilization()))
+            .collect()
+    }
+
+    pub fn get_utilization_per_state(&self) -> BTreeMap<MsaccThreadState, f64> {
+        let mut aggregated = BTreeMap::<_, Duration>::new();
+        let mut total = Duration::default();
+        for thread in &self.threads {
+            for (state, c) in thread
+                .counters
+                .iter()
+                .filter(|(state, _)| state.as_str() != THREAD_STATE_SLEEP)
+            {
+                *aggregated.entry(state).or_default() += *c;
+                total += *c;
+            }
+        }
+        aggregated
+            .into_iter()
+            .map(|(state, c)| {
+                let k = state.to_owned();
+                let v = c.as_secs_f64() / total.as_secs_f64() * 100.0;
                 (k, v)
             })
             .collect()
+    }
+}
+
+// TODO: rename
+#[derive(Debug, Default)]
+struct Time {
+    runtime: Duration,
+    realtime: Duration,
+    count: usize,
+}
+
+impl Time {
+    fn utilization(&self) -> f64 {
+        self.runtime.as_secs_f64() / self.realtime.as_secs_f64() * 100.0
     }
 }
 
@@ -97,6 +127,13 @@ impl MsaccDataThread {
             thread_type: ty.name,
             counters,
         })
+    }
+
+    fn sleep_time(&self) -> Duration {
+        self.counters
+            .get(THREAD_STATE_SLEEP)
+            .copied()
+            .unwrap_or_default()
     }
 }
 
