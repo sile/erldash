@@ -41,6 +41,7 @@ fn main() -> anyhow::Result<()> {
 
         let mut app = App {
             history: VecDeque::new(),
+            memory: client.get_memory_stats().await?,
         };
         loop {
             if crossterm::event::poll(std::time::Duration::from_secs(0))? {
@@ -57,6 +58,8 @@ fn main() -> anyhow::Result<()> {
                 // TODO:
                 app.history.pop_front();
             }
+
+            app.memory = client.get_memory_stats().await?;
 
             terminal.draw(|f| ui(f, &app))?;
         }
@@ -77,6 +80,7 @@ fn main() -> anyhow::Result<()> {
 #[derive(Debug, Default)]
 struct App {
     history: VecDeque<msacc::MsaccData>,
+    memory: erlang::memory::MemoryStats,
 }
 
 impl App {
@@ -109,8 +113,9 @@ fn ui<B: tui::backend::Backend>(f: &mut tui::Frame<B>, app: &App) {
         .direction(tui::layout::Direction::Vertical)
         .constraints(
             [
-                tui::layout::Constraint::Percentage(50),
-                tui::layout::Constraint::Percentage(50),
+                tui::layout::Constraint::Percentage(40),
+                tui::layout::Constraint::Percentage(40),
+                tui::layout::Constraint::Percentage(20),
             ]
             .as_ref(),
         )
@@ -306,4 +311,37 @@ fn ui<B: tui::backend::Backend>(f: &mut tui::Frame<B>, app: &App) {
         )
         .start_corner(tui::layout::Corner::TopLeft);
     f.render_widget(list, chunks[1]);
+
+    // memory
+    // TODO: use table
+    let mut items: Vec<tui::widgets::ListItem> = Vec::new();
+    items.push(tui::widgets::ListItem::new(
+        app.memory
+            .iter()
+            .enumerate()
+            .map(|(i, (ty, data))| {
+                let color = erldash::color::PALETTE[i % erldash::color::PALETTE.len()];
+                let s = tui::style::Style::default()
+                    .fg(color)
+                    .add_modifier(tui::style::Modifier::BOLD);
+                let span = tui::text::Span::styled(
+                    format!(
+                        "{}: {}",
+                        ty,
+                        byte_unit::Byte::from_bytes(data.into()).get_appropriate_unit(true)
+                    ),
+                    s,
+                );
+                tui::text::Spans::from(vec![span])
+            })
+            .collect::<Vec<_>>(),
+    ));
+    let list = tui::widgets::List::new(items)
+        .block(
+            tui::widgets::Block::default()
+                .borders(tui::widgets::Borders::ALL)
+                .title("Memory"),
+        )
+        .start_corner(tui::layout::Corner::TopLeft);
+    f.render_widget(list, top_chunks[2]);
 }

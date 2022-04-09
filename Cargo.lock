@@ -156,6 +156,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "byte-unit"
+version = "4.0.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "95ebf10dda65f19ff0f42ea15572a359ed60d7fc74fdc984d90310937be0014b"
+dependencies = [
+ "utf8-width",
+]
+
+[[package]]
 name = "byteorder"
 version = "1.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -324,7 +333,9 @@ dependencies = [
 
 [[package]]
 name = "erl_rpc"
-version = "0.1.0"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "467bdd06716aa335fbf598fdacabc4d3e5b97597f31dfc575bfeb8d5a4b99f6f"
 dependencies = [
  "erl_dist",
  "futures",
@@ -338,6 +349,7 @@ name = "erldash"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "byte-unit",
  "clap",
  "crossterm 0.23.1",
  "dirs",
@@ -1053,6 +1065,12 @@ name = "unicode-xid"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ccb82d61f80a663efe1f787a51b16b5a51e3314d6ac365b08639f52387b33f3"
+
+[[package]]
+name = "utf8-width"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5190c9442dcdaf0ddd50f37420417d219ae5261bbf5db120d0f9bab996c9cba1"
 
 [[package]]
 name = "version_check"

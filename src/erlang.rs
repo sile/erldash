@@ -1,7 +1,9 @@
 use erl_dist::node::NodeName;
+use erl_dist::term::Term;
 use futures::channel::oneshot;
 use std::time::Duration;
 
+pub mod memory;
 pub mod msacc;
 
 #[derive(Debug)]
@@ -34,6 +36,10 @@ impl RpcClient {
         }
         self::msacc::get_msacc_stats(self.handle.clone(), duration).await
     }
+
+    pub async fn get_memory_stats(&mut self) -> anyhow::Result<self::memory::MemoryStats> {
+        self::memory::get_memory_stats(self.handle.clone()).await
+    }
 }
 
 impl Drop for RpcClient {
@@ -49,4 +55,13 @@ pub fn find_cookie() -> anyhow::Result<String> {
     } else {
         anyhow::bail!("Could not find the cookie file $HOME/.erlang.cookie. Please specify `-cookie` arg instead.");
     }
+}
+
+pub fn term_to_u64(term: Term) -> anyhow::Result<u64> {
+    let v = match term {
+        Term::FixInteger(v) => v.value.try_into()?,
+        Term::BigInteger(v) => v.value.try_into()?,
+        v => anyhow::bail!("{} is not an integer", v),
+    };
+    Ok(v)
 }
