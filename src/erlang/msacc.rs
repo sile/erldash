@@ -7,6 +7,8 @@ pub(crate) async fn get_msacc_stats(
     mut handle: RpcClientHandle,
     duration: Duration,
 ) -> anyhow::Result<MsaccData> {
+    // Consider to use `erlang:system_flag/2` and `erlang:statistics/1` directly as `msacc` module
+    // could be excluded from release packages.
     handle
         .call(
             "msacc".into(),

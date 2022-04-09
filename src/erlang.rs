@@ -5,6 +5,7 @@ use std::time::Duration;
 
 pub mod memory;
 pub mod msacc;
+pub mod stats;
 
 #[derive(Debug)]
 pub struct RpcClient {
@@ -39,6 +40,10 @@ impl RpcClient {
 
     pub async fn get_memory_stats(&mut self) -> anyhow::Result<self::memory::MemoryStats> {
         self::memory::get_memory_stats(self.handle.clone()).await
+    }
+
+    pub async fn get_stats(&mut self) -> anyhow::Result<self::stats::Stats> {
+        self::stats::Stats::collect(self.handle.clone()).await
     }
 }
 

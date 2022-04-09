@@ -41,7 +41,8 @@ fn main() -> anyhow::Result<()> {
 
         let mut app = App {
             history: VecDeque::new(),
-            memory: client.get_memory_stats().await?,
+            memory: Default::default(),
+            stats: Default::default(),
         };
         loop {
             if crossterm::event::poll(std::time::Duration::from_secs(0))? {
@@ -60,6 +61,7 @@ fn main() -> anyhow::Result<()> {
             }
 
             app.memory = client.get_memory_stats().await?;
+            app.stats = client.get_stats().await?;
 
             terminal.draw(|f| ui(f, &app))?;
         }
@@ -81,6 +83,7 @@ fn main() -> anyhow::Result<()> {
 struct App {
     history: VecDeque<msacc::MsaccData>,
     memory: erlang::memory::MemoryStats,
+    stats: erlang::stats::Stats,
 }
 
 impl App {
@@ -114,8 +117,7 @@ fn ui<B: tui::backend::Backend>(f: &mut tui::Frame<B>, app: &App) {
         .constraints(
             [
                 tui::layout::Constraint::Percentage(40),
-                tui::layout::Constraint::Percentage(40),
-                tui::layout::Constraint::Percentage(20),
+                tui::layout::Constraint::Percentage(60),
             ]
             .as_ref(),
         )
@@ -130,6 +132,18 @@ fn ui<B: tui::backend::Backend>(f: &mut tui::Frame<B>, app: &App) {
             .as_ref(),
         )
         .split(top_chunks[0]);
+
+    let stats_chunks = tui::layout::Layout::default()
+        .direction(tui::layout::Direction::Horizontal)
+        .constraints(
+            [
+                tui::layout::Constraint::Percentage(40),
+                tui::layout::Constraint::Percentage(30),
+                tui::layout::Constraint::Percentage(30),
+            ]
+            .as_ref(),
+        )
+        .split(top_chunks[1]);
 
     let util = app.utilization_per_type();
     let datasets = util
@@ -216,19 +230,6 @@ fn ui<B: tui::backend::Backend>(f: &mut tui::Frame<B>, app: &App) {
         .start_corner(tui::layout::Corner::TopLeft);
     f.render_widget(list, chunks[1]);
 
-    let chunks = tui::layout::Layout::default()
-        .direction(tui::layout::Direction::Horizontal)
-        .constraints(
-            [
-                tui::layout::Constraint::Percentage(80),
-                tui::layout::Constraint::Percentage(20),
-            ]
-            .as_ref(),
-        )
-        .split(top_chunks[1]);
-
-    //
-    let util = app.utilization_per_state();
     let datasets = util
         .iter()
         .enumerate()
@@ -242,12 +243,11 @@ fn ui<B: tui::backend::Backend>(f: &mut tui::Frame<B>, app: &App) {
                 .data(data)
         })
         .collect::<Vec<_>>();
-
     let chart = tui::widgets::Chart::new(datasets)
         .block(
             tui::widgets::Block::default()
                 .title(tui::text::Span::styled(
-                    "State-Runtime / Total-Runtime (%)",
+                    "Per Type Utilization(%)",
                     tui::style::Style::default()
                         .fg(tui::style::Color::Cyan)
                         .add_modifier(tui::style::Modifier::BOLD),
@@ -280,6 +280,8 @@ fn ui<B: tui::backend::Backend>(f: &mut tui::Frame<B>, app: &App) {
         );
     f.render_widget(chart, chunks[0]);
 
+    //
+    let util = app.utilization_per_state();
     let width = util.keys().map(|k| k.len()).max().unwrap(); // TODO
     let mut items: Vec<tui::widgets::ListItem> = Vec::new();
     items.push(tui::widgets::ListItem::new(
@@ -310,7 +312,7 @@ fn ui<B: tui::backend::Backend>(f: &mut tui::Frame<B>, app: &App) {
                 .title("State"),
         )
         .start_corner(tui::layout::Corner::TopLeft);
-    f.render_widget(list, chunks[1]);
+    f.render_widget(list, stats_chunks[2]);
 
     // memory
     // TODO: use table
@@ -343,5 +345,38 @@ fn ui<B: tui::backend::Backend>(f: &mut tui::Frame<B>, app: &App) {
                 .title("Memory"),
         )
         .start_corner(tui::layout::Corner::TopLeft);
-    f.render_widget(list, top_chunks[2]);
+    f.render_widget(list, stats_chunks[1]);
+
+    // stats
+    // TODO: use table
+    let mut items: Vec<tui::widgets::ListItem> = Vec::new();
+    items.push(tui::widgets::ListItem::new(
+        app.stats
+            .iter()
+            .enumerate()
+            .map(|(i, (ty, data))| {
+                let color = erldash::color::PALETTE[i % erldash::color::PALETTE.len()];
+                let s = tui::style::Style::default()
+                    .fg(color)
+                    .add_modifier(tui::style::Modifier::BOLD);
+                let span = tui::text::Span::styled(
+                    format!(
+                        "{}: {}",
+                        ty,
+                        byte_unit::Byte::from_bytes(data.into()).get_appropriate_unit(true)
+                    ),
+                    s,
+                );
+                tui::text::Spans::from(vec![span])
+            })
+            .collect::<Vec<_>>(),
+    ));
+    let list = tui::widgets::List::new(items)
+        .block(
+            tui::widgets::Block::default()
+                .borders(tui::widgets::Borders::ALL)
+                .title("Statistics"),
+        )
+        .start_corner(tui::layout::Corner::TopLeft);
+    f.render_widget(list, stats_chunks[0]);
 }
