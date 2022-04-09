@@ -44,6 +44,7 @@ fn main() -> anyhow::Result<()> {
             history: VecDeque::new(),
             memory: Default::default(),
             stats: Default::default(),
+            top: None,
         };
         loop {
             if crossterm::event::poll(std::time::Duration::from_secs(0))? {
@@ -63,6 +64,9 @@ fn main() -> anyhow::Result<()> {
 
             app.memory = client.get_memory_stats().await?;
             app.stats = client.get_stats().await?;
+
+            // TODO: if app.index {}
+            app.top = Some(client.get_top().await?);
 
             terminal.draw(|f| ui(f, &app))?;
         }
@@ -86,6 +90,7 @@ struct App {
     history: VecDeque<msacc::MsaccData>,
     memory: erlang::memory::MemoryStats,
     stats: erlang::stats::Stats,
+    top: Option<erlang::top::Top>,
 }
 
 impl App {
@@ -141,10 +146,38 @@ fn ui<B: tui::backend::Backend>(f: &mut tui::Frame<B>, app: &App) {
     f.render_widget(tabs, chunks[0]);
 
     match app.index {
-        0 => ui_stats(f, app, chunks[1]),
+        0 => ui_top(f, app, chunks[1]),
         1 => ui_stats(f, app, chunks[1]),
         _ => unreachable!(),
     };
+}
+
+fn ui_top<B: tui::backend::Backend>(f: &mut tui::Frame<B>, app: &App, area: tui::layout::Rect) {
+    // TODO: table
+    let items = app
+        .top
+        .as_ref()
+        .expect("TODO")
+        .processes
+        .iter()
+        .take(area.height as usize) // TODO: remove
+        .map(|proc| {
+            let s = format!(
+                "{} | {} | {} | {}",
+                proc.pid, proc.message_queue_len, proc.memory, proc.reductions
+            );
+            tui::widgets::ListItem::new(tui::text::Spans::from(s))
+        })
+        .collect::<Vec<_>>();
+
+    let list = tui::widgets::List::new(items)
+        .block(
+            tui::widgets::Block::default()
+                .borders(tui::widgets::Borders::ALL)
+                .title("Processes"),
+        )
+        .start_corner(tui::layout::Corner::TopLeft);
+    f.render_widget(list, area);
 }
 
 fn ui_stats<B: tui::backend::Backend>(f: &mut tui::Frame<B>, app: &App, area: tui::layout::Rect) {

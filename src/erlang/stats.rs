@@ -1,6 +1,6 @@
 use crate::erlang;
 use erl_dist::term::{Atom, FixInteger, List, Term, Tuple};
-use std::time::Duration;
+// use std::time::Duration;
 
 #[derive(Debug, Default)]
 pub struct Stats {
@@ -14,9 +14,10 @@ pub struct Stats {
 }
 
 impl Stats {
-    pub fn to_gauge(&self, prev: &Self, prev_time: Duration, interval: Duration) -> Self {
-        todo!()
-    }
+    // TODO
+    // pub fn to_gauge(&self, prev: &Self, prev_time: Duration, interval: Duration) -> Self {
+    //     todo!()
+    // }
 
     pub fn iter(&self) -> impl Iterator<Item = (&str, u64)> {
         [
