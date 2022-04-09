@@ -8,7 +8,7 @@ pub struct Stats {
     pub ports: u64,
     pub context_switches: u64,
     pub garbage_collection: u64,
-    pub in_bytes: u64,
+    pub in_bytes: u64, // words?
     pub out_bytes: u64,
     pub run_queue: u64,
 }

@@ -2,6 +2,7 @@ use crate::erlang;
 use erl_dist::term::{Atom, List, Tuple};
 use std::collections::BTreeMap;
 
+// unit = word?
 #[derive(Debug, Default, Clone)]
 pub struct MemoryStats {
     pub total: u64,     // processes + ssytem

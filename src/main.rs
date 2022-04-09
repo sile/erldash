@@ -40,6 +40,7 @@ fn main() -> anyhow::Result<()> {
         let mut client = erlang::RpcClient::connect(&args.erlang_node, &cookie).await?;
 
         let mut app = App {
+            index: 0,
             history: VecDeque::new(),
             memory: Default::default(),
             stats: Default::default(),
@@ -81,6 +82,7 @@ fn main() -> anyhow::Result<()> {
 
 #[derive(Debug, Default)]
 struct App {
+    index: usize,
     history: VecDeque<msacc::MsaccData>,
     memory: erlang::memory::MemoryStats,
     stats: erlang::stats::Stats,
@@ -111,7 +113,41 @@ impl App {
 }
 
 fn ui<B: tui::backend::Backend>(f: &mut tui::Frame<B>, app: &App) {
+    let tabs = tui::widgets::Tabs::new(vec![tui::text::Spans::from("Top"), "Stats".into()])
+        .select(app.index)
+        .block(
+            tui::widgets::Block::default()
+                .borders(tui::widgets::Borders::ALL)
+                .title("Tabs"),
+        )
+        .style(tui::style::Style::default().fg(tui::style::Color::Cyan))
+        .highlight_style(
+            tui::style::Style::default()
+                .add_modifier(tui::style::Modifier::BOLD)
+                .bg(tui::style::Color::Black),
+        );
     let size = f.size();
+    let chunks = tui::layout::Layout::default()
+        .direction(tui::layout::Direction::Vertical)
+        .margin(1)
+        .constraints(
+            [
+                tui::layout::Constraint::Length(3),
+                tui::layout::Constraint::Min(0),
+            ]
+            .as_ref(),
+        )
+        .split(size);
+    f.render_widget(tabs, chunks[0]);
+
+    match app.index {
+        0 => ui_stats(f, app, chunks[1]),
+        1 => ui_stats(f, app, chunks[1]),
+        _ => unreachable!(),
+    };
+}
+
+fn ui_stats<B: tui::backend::Backend>(f: &mut tui::Frame<B>, app: &App, area: tui::layout::Rect) {
     let top_chunks = tui::layout::Layout::default()
         .direction(tui::layout::Direction::Vertical)
         .constraints(
@@ -121,7 +157,7 @@ fn ui<B: tui::backend::Backend>(f: &mut tui::Frame<B>, app: &App) {
             ]
             .as_ref(),
         )
-        .split(size);
+        .split(area);
     let chunks = tui::layout::Layout::default()
         .direction(tui::layout::Direction::Horizontal)
         .constraints(
