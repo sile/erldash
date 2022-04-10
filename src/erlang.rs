@@ -1,8 +1,9 @@
 use erl_dist::node::NodeName;
-use erl_dist::term::Term;
+use erl_dist::term::{Pid, Term};
 use futures::channel::oneshot;
 use std::time::Duration;
 
+pub mod eprof;
 pub mod memory;
 pub mod msacc;
 pub mod stats;
@@ -49,6 +50,15 @@ impl RpcClient {
 
     pub async fn get_top(&mut self) -> anyhow::Result<self::top::Top> {
         self::top::Top::collect(self.handle.clone()).await
+    }
+
+    // TODO: rename
+    pub async fn get_eprof(
+        &mut self,
+        pid: Pid,
+        duration: Duration,
+    ) -> anyhow::Result<self::eprof::Eprof> {
+        self::eprof::Eprof::profile(self.handle.clone(), pid, duration).await
     }
 }
 
