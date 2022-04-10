@@ -1,4 +1,5 @@
-use erl_dist::term::{List, Pid};
+use erl_dist::node::LocalNode;
+use erl_dist::term::{Atom, List, Pid};
 use erl_rpc::{ConvertTerm, RpcClientHandle};
 use std::time::Duration;
 
@@ -11,7 +12,12 @@ impl Eprof {
         mut handle: RpcClientHandle,
         pid: Pid,
         duration: Duration,
+        local_node: LocalNode,
     ) -> anyhow::Result<Self> {
+        //let _ = handle.call0("eprof", "stop").await?;
+
+        // TODO: make sure to stop before returing this method.
+        // TODO: handle {error, {alerady_started, _}}
         let eprof_pid = handle
             .call0("eprof", "start")
             .await?
@@ -27,12 +33,22 @@ impl Eprof {
             .call0("eprof", "stop_profiling")
             .await?
             .expect_atom("profiling_stopped")?;
-        // TODO: set gropu leader
-        handle.call0("eprof", "analyze").await?.expect_atom("ok")?;
-        handle
-            .call0("eprof", "stop")
+
+        // TODO: use GROUP_LEADER control message(?)
+        // let group_leader_pid =
+        // Pid::new(local_node.name.to_string(), 1, 0, local_node.creation.get()); // TODO
+        // handle
+        //     .call2("erlang", "group_leader", group_leader_pid, eprof_pid)
+        //     .await?;
+        let result = handle
+            .call1("eprof", "analyze", Atom::from("total"))
             .await?
-            .expect_atom("stopped")?;
+            .try_into_atom()?;
+        if result.name == "ok" {
+            // TDOO
+        }
+        handle.call0("eprof", "stop").await?;
+
         Ok(Self {})
     }
 }
