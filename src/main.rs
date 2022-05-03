@@ -1,16 +1,12 @@
 use anyhow::Context;
 use clap::Parser;
+use erldash::{erlang, metrics, ui};
 
 #[derive(Debug, Parser)]
 #[clap(version)]
 struct Args {
-    erlang_node: erl_dist::node::NodeName,
-
-    #[clap(long, short = 'i', default_value = "1")]
-    polling_interval: std::num::NonZeroUsize,
-
-    #[clap(long, short = 'c')]
-    cookie: Option<String>,
+    #[clap(flatten)]
+    options: erldash::Options,
 
     #[clap(hide = true, long)]
     logfile: Option<std::path::PathBuf>,
@@ -26,7 +22,8 @@ fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     setup_logger(&args)?;
 
-    let app = erldash::ui::App::new()?;
+    let rx = metrics::MetricsPoller::start_thread(args.options)?;
+    let app = ui::App::new(rx)?;
     app.run()?;
     Ok(())
 }
@@ -64,11 +61,6 @@ fn setup_logger(args: &Args) -> anyhow::Result<()> {
 // fn main() -> anyhow::Result<()> {
 //     let args = Args::parse();
 
-//     let cookie = if let Some(cookie) = &args.cookie {
-//         cookie.clone()
-//     } else {
-//         erlang::find_cookie()?
-//     };
 //     let interval = Duration::from_secs_f32(args.interval);
 
 //     // Setup terminal.

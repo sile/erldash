@@ -1,3 +1,4 @@
+use crate::metrics::MetricsReceiver;
 use crossterm::event::{KeyCode, KeyEvent};
 use tui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use tui::style::{Modifier, Style};
@@ -9,15 +10,17 @@ type Frame<'a> = tui::Frame<'a, tui::backend::CrosstermBackend<std::io::Stdout>>
 
 pub struct App {
     terminal: Terminal,
+    rx: MetricsReceiver,
     ui: UiState,
 }
 
 impl App {
-    pub fn new() -> anyhow::Result<Self> {
+    pub fn new(rx: MetricsReceiver) -> anyhow::Result<Self> {
         let terminal = Self::setup_terminal()?;
         log::debug!("setup terminal");
         Ok(Self {
             terminal,
+            rx,
             ui: UiState::new(),
         })
     }
