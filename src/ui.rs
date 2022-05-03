@@ -1,13 +1,19 @@
 use crate::erlang::SystemVersion;
-use crate::metrics::MetricsReceiver;
+use crate::metrics::{Metrics, MetricsReceiver};
 use crossterm::event::{KeyCode, KeyEvent};
+use std::collections::VecDeque;
+use std::sync::mpsc;
+use std::time::Duration;
 use tui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use tui::style::{Modifier, Style};
 use tui::text::{Span, Spans};
-use tui::widgets::{Block, Borders, Paragraph};
+use tui::widgets::{Block, Borders, Paragraph, TableState};
 
 type Terminal = tui::Terminal<tui::backend::CrosstermBackend<std::io::Stdout>>;
 type Frame<'a> = tui::Frame<'a, tui::backend::CrosstermBackend<std::io::Stdout>>;
+
+const ONE_MINUTE: u64 = 60;
+const CHART_DURATION: u64 = ONE_MINUTE;
 
 pub struct App {
     terminal: Terminal,
@@ -31,8 +37,40 @@ impl App {
             if self.handle_event()? {
                 break;
             }
-            self.render_ui()?;
-            std::thread::sleep(std::time::Duration::from_millis(10));
+            if self.ui.pause {
+                std::thread::sleep(self.poll_timeout());
+            } else {
+                self.handle_poll()?;
+            }
+        }
+        Ok(())
+    }
+
+    fn poll_timeout(&self) -> Duration {
+        Duration::from_millis(10)
+    }
+
+    fn handle_poll(&mut self) -> anyhow::Result<()> {
+        match self.rx.recv_timeout(self.poll_timeout()) {
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                anyhow::bail!("Erlang metrics polling thread terminated unexpectedly");
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Ok(metrics) => {
+                log::debug!("recv new metrics");
+                let timestamp = metrics.timestamp;
+                self.ui.history.push_back(metrics);
+                while let Some(item) = self.ui.history.pop_front() {
+                    let duration = (timestamp - item.timestamp).as_secs();
+                    if duration <= CHART_DURATION {
+                        self.ui.history.push_front(item);
+                        break;
+                    }
+                    log::debug!("remove old metrics");
+                }
+                self.ui.ensure_table_indices_are_in_ranges();
+                self.render_ui()?;
+            }
         }
         Ok(())
     }
@@ -59,7 +97,9 @@ impl App {
             KeyCode::Char('q') => {
                 return Ok(true);
             }
-            KeyCode::Char('p') => {}
+            KeyCode::Char('p') => {
+                self.ui.pause = !self.ui.pause;
+            }
             KeyCode::Left => {}
             KeyCode::Right => {}
             KeyCode::Up => {}
@@ -73,7 +113,9 @@ impl App {
     }
 
     fn render_ui(&mut self) -> anyhow::Result<()> {
-        self.terminal.draw(|f| self.ui.render(f))?;
+        if !self.ui.history.is_empty() {
+            self.terminal.draw(|f| self.ui.render(f))?;
+        }
         Ok(())
     }
 
@@ -110,11 +152,21 @@ impl Drop for App {
 #[derive(Debug)]
 struct UiState {
     system_version: SystemVersion,
+    pause: bool,
+    history: VecDeque<Metrics>,
+    metrics_table_state: TableState,
+    //detail_table_state: TableState,
 }
 
 impl UiState {
     fn new(system_version: SystemVersion) -> Self {
-        Self { system_version }
+        Self {
+            system_version,
+            pause: false,
+            history: VecDeque::new(),
+            metrics_table_state: TableState::default(),
+            //detail_table_state: TableState::default(),
+        }
     }
 
     fn render(&mut self, f: &mut Frame) {
@@ -149,8 +201,13 @@ impl UiState {
     }
 
     fn render_metrics(&mut self, f: &mut Frame, area: Rect) {
+        let block = if self.pause {
+            self.make_block("Metrics (PAUSED)")
+        } else {
+            self.make_block("Metrics")
+        };
         let paragraph = Paragraph::new(vec![Spans::from("TODO")])
-            .block(self.make_block("Metrics"))
+            .block(block)
             .alignment(Alignment::Left);
         f.render_widget(paragraph, area);
     }
@@ -200,5 +257,28 @@ impl UiState {
             name.to_string(),
             Style::default().add_modifier(Modifier::BOLD),
         ))
+    }
+
+    fn latest_metrics(&self) -> &Metrics {
+        self.history.back().expect("unreachable")
+    }
+
+    fn ensure_table_indices_are_in_ranges(&mut self) {
+        let n = self.latest_metrics().root_metrics_count();
+        if let Some(max) = n.checked_sub(1) {
+            let i = std::cmp::min(self.metrics_table_state.selected().unwrap_or(0), max);
+            self.metrics_table_state.select(Some(i));
+        } else {
+            self.metrics_table_state.select(None);
+        }
+
+        // TODO
+        // if self.latest_stats().connection_count() == 0 {
+        //     self.individual_table_state.select(None);
+        // } else {
+        //     let n = self.latest_stats().connection_count();
+        //     let i = std::cmp::min(self.individual_table_state.selected().unwrap_or(0), n - 1);
+        //     self.individual_table_state.select(Some(i));
+        // }
     }
 }

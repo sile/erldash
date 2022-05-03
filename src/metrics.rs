@@ -26,6 +26,10 @@ impl Metrics {
     fn insert(&mut self, name: &str, value: MetricValue) {
         self.items.insert(name.to_owned(), value);
     }
+
+    pub fn root_metrics_count(&self) -> usize {
+        self.items.values().filter(|x| x.parent().is_none()).count()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -46,6 +50,13 @@ impl MetricValue {
         Self::Gauge {
             value,
             parent: None,
+        }
+    }
+
+    pub fn parent(&self) -> Option<&str> {
+        match self {
+            Self::Gauge { parent, .. } => parent.as_ref().map(|x| x.as_str()),
+            Self::Counter { parent, .. } => parent.as_ref().map(|x| x.as_str()),
         }
     }
 }

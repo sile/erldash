@@ -1,9 +1,5 @@
 use erl_dist::node::NodeName;
 use erl_dist::term::{Atom, List, Term};
-use futures::channel::oneshot;
-
-// use erl_dist::term::Term;
-// use std::time::Duration;
 
 #[derive(Debug, Clone)]
 pub struct SystemVersion(String);
@@ -26,22 +22,20 @@ pub fn find_cookie() -> anyhow::Result<String> {
 #[derive(Debug)]
 pub struct RpcClient {
     handle: erl_rpc::RpcClientHandle,
-    err_rx: oneshot::Receiver<erl_rpc::RunError>,
 }
 
 impl RpcClient {
     pub async fn connect(erlang_node: &NodeName, cookie: &str) -> anyhow::Result<Self> {
         let client = erl_rpc::RpcClient::connect(&erlang_node.to_string(), cookie).await?;
         let handle = client.handle();
-        let (err_tx, err_rx) = oneshot::channel();
         smol::spawn(async {
             if let Err(e) = client.run().await {
-                let _ = err_tx.send(e);
+                log::error!("Erlang RPC Client error: {e}");
             }
         })
         .detach();
 
-        Ok(Self { handle, err_rx })
+        Ok(Self { handle })
     }
 
     pub async fn get_system_version(&self) -> anyhow::Result<SystemVersion> {
