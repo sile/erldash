@@ -22,8 +22,8 @@ fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     setup_logger(&args)?;
 
-    let rx = metrics::MetricsPoller::start_thread(args.options)?;
-    let app = ui::App::new(rx)?;
+    let (system_version, rx) = metrics::MetricsPoller::start_thread(args.options)?;
+    let app = ui::App::new(system_version, rx)?;
     app.run()?;
     Ok(())
 }

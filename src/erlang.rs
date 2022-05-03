@@ -1,8 +1,18 @@
 use erl_dist::node::NodeName;
+use erl_dist::term::{Atom, List, Term};
 use futures::channel::oneshot;
 
 // use erl_dist::term::Term;
 // use std::time::Duration;
+
+#[derive(Debug, Clone)]
+pub struct SystemVersion(String);
+
+impl SystemVersion {
+    pub fn get(&self) -> &str {
+        &self.0
+    }
+}
 
 pub fn find_cookie() -> anyhow::Result<String> {
     if let Some(dir) = dirs::home_dir().filter(|dir| dir.join(".erlang.cookie").exists()) {
@@ -32,6 +42,18 @@ impl RpcClient {
         .detach();
 
         Ok(Self { handle, err_rx })
+    }
+
+    pub async fn get_system_version(&mut self) -> anyhow::Result<SystemVersion> {
+        let result = self
+            .handle
+            .call(
+                "erlang".into(),
+                "system_info".into(),
+                List::from(vec![Atom::from("system_version").into()]),
+            )
+            .await?;
+        term_to_string(result).map(SystemVersion)
     }
 }
 //     pub async fn get_msacc_stats(
@@ -67,3 +89,24 @@ impl RpcClient {
 //     };
 //     Ok(v)
 // }
+
+fn term_to_string(term: Term) -> anyhow::Result<String> {
+    if let Term::List(list) = term {
+        let bytes = list
+            .elements
+            .into_iter()
+            .map(term_to_u8)
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        Ok(String::from_utf8(bytes)?)
+    } else {
+        anyhow::bail!("expected a string, but got {}", term);
+    }
+}
+
+fn term_to_u8(term: Term) -> anyhow::Result<u8> {
+    if let Term::FixInteger(v) = term {
+        Ok(u8::try_from(v.value)?)
+    } else {
+        anyhow::bail!("expected an integer, but got {}", term)
+    }
+}

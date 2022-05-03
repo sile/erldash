@@ -1,4 +1,4 @@
-use crate::erlang::RpcClient;
+use crate::erlang::{RpcClient, SystemVersion};
 use crate::Options;
 use std::sync::mpsc;
 use std::time::{Instant, SystemTime};
@@ -71,14 +71,15 @@ pub struct MetricsPoller {
 }
 
 impl MetricsPoller {
-    pub fn start_thread(options: Options) -> anyhow::Result<MetricsReceiver> {
+    pub fn start_thread(options: Options) -> anyhow::Result<(SystemVersion, MetricsReceiver)> {
         let (tx, rx) = mpsc::channel();
 
-        let rpc_client = smol::block_on(async {
+        let mut rpc_client: RpcClient = smol::block_on(async {
             let cookie = options.find_cookie()?;
             let client = RpcClient::connect(&options.erlang_node, &cookie).await?;
             Ok(client) as anyhow::Result<_>
         })?;
+        let system_version = smol::block_on(rpc_client.get_system_version())?;
 
         let poller = Self {
             options,
@@ -86,7 +87,7 @@ impl MetricsPoller {
             tx,
         };
         std::thread::spawn(|| poller.run());
-        Ok(rx)
+        Ok((system_version, rx))
     }
 
     fn run(self) {}

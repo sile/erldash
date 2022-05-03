@@ -1,3 +1,4 @@
+use crate::erlang::SystemVersion;
 use crate::metrics::MetricsReceiver;
 use crossterm::event::{KeyCode, KeyEvent};
 use tui::layout::{Alignment, Constraint, Direction, Layout, Rect};
@@ -15,13 +16,13 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(rx: MetricsReceiver) -> anyhow::Result<Self> {
+    pub fn new(system_version: SystemVersion, rx: MetricsReceiver) -> anyhow::Result<Self> {
         let terminal = Self::setup_terminal()?;
         log::debug!("setup terminal");
         Ok(Self {
             terminal,
             rx,
-            ui: UiState::new(),
+            ui: UiState::new(system_version),
         })
     }
 
@@ -107,11 +108,13 @@ impl Drop for App {
 }
 
 #[derive(Debug)]
-struct UiState {}
+struct UiState {
+    system_version: SystemVersion,
+}
 
 impl UiState {
-    fn new() -> Self {
-        Self {}
+    fn new(system_version: SystemVersion) -> Self {
+        Self { system_version }
     }
 
     fn render(&mut self, f: &mut Frame) {
@@ -125,7 +128,7 @@ impl UiState {
     }
 
     fn render_header(&mut self, f: &mut Frame, area: Rect) {
-        let paragraph = Paragraph::new(vec![Spans::from("TODO")])
+        let paragraph = Paragraph::new(vec![Spans::from(self.system_version.get())])
             .block(self.make_block("System Version"))
             .alignment(Alignment::Left);
         f.render_widget(paragraph, area);
