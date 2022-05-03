@@ -1,6 +1,6 @@
 use anyhow::Context;
 use clap::Parser;
-use erldash::{erlang, metrics, ui};
+use erldash::{metrics, ui};
 
 #[derive(Debug, Parser)]
 #[clap(version)]

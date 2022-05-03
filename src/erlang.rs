@@ -44,16 +44,30 @@ impl RpcClient {
         Ok(Self { handle, err_rx })
     }
 
-    pub async fn get_system_version(&mut self) -> anyhow::Result<SystemVersion> {
-        let result = self
+    pub async fn get_system_version(&self) -> anyhow::Result<SystemVersion> {
+        let term = self
             .handle
+            .clone()
             .call(
                 "erlang".into(),
                 "system_info".into(),
                 List::from(vec![Atom::from("system_version").into()]),
             )
             .await?;
-        term_to_string(result).map(SystemVersion)
+        term_to_string(term).map(SystemVersion)
+    }
+
+    pub async fn get_system_info_u64(&self, item_name: &str) -> anyhow::Result<u64> {
+        let term = self
+            .handle
+            .clone()
+            .call(
+                "erlang".into(),
+                "system_info".into(),
+                List::from(vec![Atom::from(item_name).into()]),
+            )
+            .await?;
+        term_to_u64(term)
     }
 }
 //     pub async fn get_msacc_stats(
@@ -81,14 +95,14 @@ impl RpcClient {
 //     }
 // }
 
-// pub fn term_to_u64(term: Term) -> anyhow::Result<u64> {
-//     let v = match term {
-//         Term::FixInteger(v) => v.value.try_into()?,
-//         Term::BigInteger(v) => v.value.try_into()?,
-//         v => anyhow::bail!("{} is not an integer", v),
-//     };
-//     Ok(v)
-// }
+pub fn term_to_u64(term: Term) -> anyhow::Result<u64> {
+    let v = match term {
+        Term::FixInteger(v) => v.value.try_into()?,
+        Term::BigInteger(v) => v.value.try_into()?,
+        v => anyhow::bail!("{} is not an integer", v),
+    };
+    Ok(v)
+}
 
 fn term_to_string(term: Term) -> anyhow::Result<String> {
     if let Term::List(list) = term {
