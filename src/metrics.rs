@@ -39,7 +39,7 @@ pub struct SystemInfo {
     // erlang:system_flag(scheduler_wall_time, true).
     pub dirty_io_schedulers: u64,
 }
-
+// erlang:system_info(system_version).
 #[derive(Debug, Clone)]
 pub struct StatsMetrics {
     pub processes: Gauge,

@@ -117,7 +117,7 @@ impl UiState {
     fn render(&mut self, f: &mut Frame) {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Length(5), Constraint::Min(0)].as_ref())
+            .constraints([Constraint::Length(3), Constraint::Min(0)].as_ref())
             .split(f.size());
 
         self.render_header(f, chunks[0]);
@@ -125,20 +125,46 @@ impl UiState {
     }
 
     fn render_header(&mut self, f: &mut Frame, area: Rect) {
+        let paragraph = Paragraph::new(vec![Spans::from("TODO")])
+            .block(self.make_block("System Version"))
+            .alignment(Alignment::Left);
+        f.render_widget(paragraph, area);
+    }
+
+    fn render_body(&mut self, f: &mut Frame, area: Rect) {
         let chunks = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
             .split(area);
 
-        self.render_status(f, chunks[0]);
-        self.render_help(f, chunks[1]);
+        self.render_body_left(f, chunks[0]);
+        self.render_body_right(f, chunks[1]);
     }
 
-    fn render_status(&mut self, f: &mut Frame, area: Rect) {
+    fn render_body_left(&mut self, f: &mut Frame, area: Rect) {
+        self.render_metrics(f, area);
+    }
+
+    fn render_metrics(&mut self, f: &mut Frame, area: Rect) {
         let paragraph = Paragraph::new(vec![Spans::from("TODO")])
-            .block(self.make_block("Status"))
+            .block(self.make_block("Metrics"))
             .alignment(Alignment::Left);
         f.render_widget(paragraph, area);
+    }
+
+    fn render_body_right(&mut self, f: &mut Frame, area: Rect) {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(0), Constraint::Length(5)].as_ref())
+            .split(area);
+        let upper_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
+            .split(chunks[0]);
+
+        self.render_detail(f, upper_chunks[0]);
+        self.render_chart(f, upper_chunks[1]);
+        self.render_help(f, chunks[1]);
     }
 
     fn render_help(&mut self, f: &mut Frame, area: Rect) {
@@ -150,65 +176,6 @@ impl UiState {
         .block(self.make_block("Help"))
         .alignment(Alignment::Left);
         f.render_widget(paragraph, area);
-    }
-
-    fn render_body(&mut self, f: &mut Frame, area: Rect) {
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
-            .split(area);
-
-        self.render_summaries(f, chunks[0]);
-        self.render_details(f, chunks[1]);
-    }
-
-    fn render_summaries(&mut self, f: &mut Frame, area: Rect) {
-        let chunks = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints(
-                [
-                    Constraint::Percentage(33),
-                    Constraint::Percentage(33),
-                    Constraint::Percentage(34),
-                ]
-                .as_ref(),
-            )
-            .split(area);
-
-        self.render_stats(f, chunks[0]);
-        self.render_memory(f, chunks[1]);
-        self.render_utilization(f, chunks[2]);
-    }
-
-    fn render_stats(&mut self, f: &mut Frame, area: Rect) {
-        let paragraph = Paragraph::new(vec![Spans::from("TODO")])
-            .block(self.make_block("Statistics"))
-            .alignment(Alignment::Left);
-        f.render_widget(paragraph, area);
-    }
-
-    fn render_memory(&mut self, f: &mut Frame, area: Rect) {
-        let paragraph = Paragraph::new(vec![Spans::from("TODO")])
-            .block(self.make_block("Memory"))
-            .alignment(Alignment::Left);
-        f.render_widget(paragraph, area);
-    }
-
-    fn render_utilization(&mut self, f: &mut Frame, area: Rect) {
-        let paragraph = Paragraph::new(vec![Spans::from("TODO")])
-            .block(self.make_block("Thread Utilization"))
-            .alignment(Alignment::Left);
-        f.render_widget(paragraph, area);
-    }
-
-    fn render_details(&mut self, f: &mut Frame, area: Rect) {
-        let chunks = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
-            .split(area);
-
-        self.render_chart(f, chunks[0]);
-        self.render_detail(f, chunks[1]);
     }
 
     fn render_chart(&mut self, f: &mut Frame, area: Rect) {
