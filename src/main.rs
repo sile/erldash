@@ -1,7 +1,50 @@
+use anyhow::Context;
+use clap::Parser;
+
+#[derive(Debug, Parser)]
+#[clap(version)]
+struct Args {
+    erlang_node: erl_dist::node::NodeName,
+
+    #[clap(long, short = 'i', default_value = "1")]
+    polling_interval: std::num::NonZeroUsize,
+
+    #[clap(long, short = 'c')]
+    cookie: Option<String>,
+
+    #[clap(hide = true, long)]
+    logfile: Option<std::path::PathBuf>,
+
+    #[clap(hide = true,long, default_value_t = simplelog::LevelFilter::Info)]
+    loglevel: simplelog::LevelFilter,
+
+    #[clap(hide = true, long)]
+    truncate_log: bool,
+}
+
 fn main() -> anyhow::Result<()> {
+    let args = Args::parse();
+    setup_logger(&args)?;
+
+    let app = erldash::ui::App::new()?;
+    app.run()?;
     Ok(())
 }
-// use clap::Parser;
+
+fn setup_logger(args: &Args) -> anyhow::Result<()> {
+    if let Some(logfile) = &args.logfile {
+        let file = std::fs::OpenOptions::new()
+            .append(!args.truncate_log)
+            .truncate(args.truncate_log)
+            .create(true)
+            .write(true)
+            .open(logfile)
+            .with_context(|| format!("failed to open log file {:?}", logfile))?;
+        simplelog::WriteLogger::init(args.loglevel, Default::default(), file)?;
+    }
+    Ok(())
+}
+
 // use erldash::erlang;
 // use erldash::erlang::msacc;
 // use std::collections::{BTreeMap, VecDeque};
