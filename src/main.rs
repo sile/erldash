@@ -44,8 +44,6 @@ fn main() -> anyhow::Result<()> {
             history: VecDeque::new(),
             memory: Default::default(),
             stats: Default::default(),
-            top: None,
-            top_state: tui::widgets::TableState::default(),
         };
         loop {
             if crossterm::event::poll(std::time::Duration::from_secs(0))? {
@@ -55,20 +53,8 @@ fn main() -> anyhow::Result<()> {
                         KeyCode::Char('q') => {
                             return Ok(());
                         }
-                        KeyCode::Up => {
-                            if let Some(i) = app.top_state.selected() {
-                                app.top_state.select(Some(i.saturating_sub(1)));
-                            } else {
-                                app.top_state.select(Some(0));
-                            }
-                        }
-                        KeyCode::Down => {
-                            if let Some(i) = app.top_state.selected() {
-                                app.top_state.select(Some(i + 1)); // TODO:
-                            } else {
-                                app.top_state.select(Some(0));
-                            }
-                        }
+                        KeyCode::Up => {}
+                        KeyCode::Down => {}
                         _ => {}
                     }
                 }
@@ -83,15 +69,6 @@ fn main() -> anyhow::Result<()> {
 
             app.memory = client.get_memory_stats().await?;
             app.stats = client.get_stats().await?;
-
-            // TODO: if app.index {}
-            app.top = Some(client.get_top().await?);
-
-            // TODO
-            if let Some(i) = app.top_state.selected() {
-                let pid = app.top.as_ref().expect("TODO").processes[i].pid.clone();
-                client.get_eprof(pid, Duration::from_secs(1)).await?;
-            }
 
             terminal.draw(|f| ui(f, &mut app))?;
         }
@@ -115,8 +92,6 @@ struct App {
     history: VecDeque<msacc::MsaccData>,
     memory: erlang::memory::MemoryStats,
     stats: erlang::stats::Stats,
-    top: Option<erlang::top::Top>,
-    top_state: tui::widgets::TableState,
 }
 
 impl App {
@@ -144,7 +119,7 @@ impl App {
 }
 
 fn ui<B: tui::backend::Backend>(f: &mut tui::Frame<B>, app: &mut App) {
-    let tabs = tui::widgets::Tabs::new(vec![tui::text::Spans::from("Top"), "Stats".into()])
+    let tabs = tui::widgets::Tabs::new(vec!["Stats".into()])
         .select(app.index)
         .block(
             tui::widgets::Block::default()
@@ -172,57 +147,9 @@ fn ui<B: tui::backend::Backend>(f: &mut tui::Frame<B>, app: &mut App) {
     f.render_widget(tabs, chunks[0]);
 
     match app.index {
-        0 => ui_top(f, app, chunks[1]),
-        1 => ui_stats(f, app, chunks[1]),
+        0 => ui_stats(f, app, chunks[1]),
         _ => unreachable!(),
     };
-}
-
-fn ui_top<B: tui::backend::Backend>(f: &mut tui::Frame<B>, app: &mut App, area: tui::layout::Rect) {
-    let normal_style = tui::style::Style::default().bg(tui::style::Color::Blue);
-    let header_cells = ["PID", "Reductions", "Memory", "Msg Queue"]
-        .iter()
-        .map(|h| {
-            tui::widgets::Cell::from(*h)
-                .style(tui::style::Style::default().fg(tui::style::Color::Red))
-        });
-    let header = tui::widgets::Row::new(header_cells)
-        .style(normal_style)
-        .height(1)
-        .bottom_margin(1);
-    let rows = app
-        .top
-        .as_ref()
-        .expect("TODO")
-        .processes
-        .iter()
-        .map(|proc| {
-            let cells = vec![
-                tui::widgets::Cell::from(proc.pid.to_string()),
-                tui::widgets::Cell::from(proc.reductions.to_string()),
-                tui::widgets::Cell::from(proc.memory.to_string()),
-                tui::widgets::Cell::from(proc.message_queue_len.to_string()),
-            ];
-            tui::widgets::Row::new(cells).height(1).bottom_margin(0)
-        });
-
-    let selected_style = tui::style::Style::default().add_modifier(tui::style::Modifier::REVERSED);
-    let table = tui::widgets::Table::new(rows)
-        .header(header)
-        .block(
-            tui::widgets::Block::default()
-                .borders(tui::widgets::Borders::ALL)
-                .title("Processes"),
-        )
-        .highlight_style(selected_style)
-        .highlight_symbol(">> ")
-        .widths(&[
-            tui::layout::Constraint::Percentage(25),
-            tui::layout::Constraint::Percentage(25),
-            tui::layout::Constraint::Percentage(25),
-            tui::layout::Constraint::Percentage(25),
-        ]);
-    f.render_stateful_widget(table, area, &mut app.top_state);
 }
 
 fn ui_stats<B: tui::backend::Backend>(f: &mut tui::Frame<B>, app: &App, area: tui::layout::Rect) {

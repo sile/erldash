@@ -1,26 +1,21 @@
-use erl_dist::node::{LocalNode, NodeName};
-use erl_dist::term::{Pid, Term};
-use erl_rpc::GroupLeader;
+use erl_dist::node::NodeName;
+use erl_dist::term::Term;
 use futures::channel::oneshot;
 use std::time::Duration;
 
-pub mod eprof;
 pub mod memory;
 pub mod msacc;
 pub mod stats;
-pub mod top;
 
 #[derive(Debug)]
 pub struct RpcClient {
     handle: erl_rpc::RpcClientHandle,
     err_rx: oneshot::Receiver<erl_rpc::RunError>,
-    group_leader: GroupLeader,
 }
 
 impl RpcClient {
     pub async fn connect(erlang_node: &NodeName, cookie: &str) -> anyhow::Result<Self> {
         let client = erl_rpc::RpcClient::connect(&erlang_node.to_string(), cookie).await?;
-        let group_leader = client.take_group_leader().expect("unreachable");
         let handle = client.handle();
         let (err_tx, err_rx) = oneshot::channel();
         smol::spawn(async {
@@ -30,11 +25,7 @@ impl RpcClient {
         })
         .detach();
 
-        Ok(Self {
-            handle,
-            err_rx,
-            group_leader,
-        })
+        Ok(Self { handle, err_rx })
     }
 
     pub async fn get_msacc_stats(
@@ -53,20 +44,6 @@ impl RpcClient {
 
     pub async fn get_stats(&mut self) -> anyhow::Result<self::stats::Stats> {
         self::stats::Stats::collect(self.handle.clone()).await
-    }
-
-    pub async fn get_top(&mut self) -> anyhow::Result<self::top::Top> {
-        self::top::Top::collect(self.handle.clone()).await
-    }
-
-    // TODO: rename
-    pub async fn get_eprof(
-        &mut self,
-        pid: Pid,
-        duration: Duration,
-    ) -> anyhow::Result<self::eprof::Eprof> {
-        self::eprof::Eprof::profile(self.handle.clone(), pid, duration, self.local_node.clone())
-            .await
     }
 }
 
