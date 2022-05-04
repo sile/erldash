@@ -1,5 +1,5 @@
 use crate::erlang::SystemVersion;
-use crate::metrics::{format_u64, Metrics, MetricsReceiver};
+use crate::metrics::{format_u64, MetricValue, Metrics, MetricsReceiver};
 use crossterm::event::{KeyCode, KeyEvent};
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::mpsc;
@@ -123,7 +123,7 @@ impl App {
                 let table = if self.ui.focus == Focus::Main {
                     &mut self.ui.metrics_table_state
                 } else {
-                    todo!()
+                    &mut self.ui.detail_table_state
                 };
 
                 let i = table.selected().unwrap_or(0).saturating_sub(1);
@@ -134,7 +134,7 @@ impl App {
                 let table = if self.ui.focus == Focus::Main {
                     &mut self.ui.metrics_table_state
                 } else {
-                    todo!()
+                    &mut self.ui.detail_table_state
                 };
 
                 let i = table.selected().unwrap_or(0) + 1;
@@ -195,7 +195,7 @@ struct UiState {
     average: BTreeMap<String, AvgValue>,
     focus: Focus,
     metrics_table_state: TableState,
-    //detail_table_state: TableState,
+    detail_table_state: TableState,
 }
 
 impl UiState {
@@ -208,7 +208,7 @@ impl UiState {
             average: BTreeMap::new(),
             focus: Focus::Main,
             metrics_table_state: TableState::default(),
-            //detail_table_state: TableState::default(),
+            detail_table_state: TableState::default(),
         }
     }
 
@@ -266,7 +266,7 @@ impl UiState {
             let avg = if is_avg_available {
                 self.average
                     .get(*name)
-                    .map(|v| format_u64(v.get()))
+                    .map(|v| format_u64(v.get(), item.is_counter()))
                     .unwrap_or_else(|| "".to_string())
             } else {
                 "".to_string()
@@ -295,11 +295,7 @@ impl UiState {
         } else {
             Style::default()
         };
-        let highlight_symbol = format!(
-            "{:>width$}> ",
-            self.metrics_table_state.selected().unwrap_or(0) + 1,
-            width = (items.len()).to_string().len()
-        );
+        let highlight_symbol = "> ";
 
         let table = Table::new(rows)
             .header(header)
@@ -343,11 +339,79 @@ impl UiState {
         f.render_widget(paragraph, area);
     }
 
+    fn collect_detailed_items(&self) -> (&str, Vec<(&str, &MetricValue)>) {
+        let root_name = self
+            .latest_metrics()
+            .root_items()
+            .nth(self.metrics_table_state.selected().unwrap_or(0))
+            .expect("unreachable")
+            .0;
+        let children = self.latest_metrics().child_items(root_name).collect();
+        (root_name, children)
+    }
+
     fn render_detail(&mut self, f: &mut Frame, area: Rect) {
-        let paragraph = Paragraph::new(vec![Spans::from("TODO")])
-            .block(self.make_block("Detail"))
-            .alignment(Alignment::Left);
-        f.render_widget(paragraph, area);
+        let (root_metric_name, items) = self.collect_detailed_items();
+        let block = self.make_block(&format!("Detail of {:?}", root_metric_name));
+
+        let header_cells = ["Name", "Value", "Avg (1m)"]
+            .into_iter()
+            .map(|h| Cell::from(h).style(Style::default().add_modifier(Modifier::BOLD)));
+        let header = Row::new(header_cells).bottom_margin(1);
+
+        let is_avg_available = self.start.elapsed().as_secs() >= ONE_MINUTE;
+        let mut value_width = 0;
+        let mut avg_width = 0;
+        let mut row_items = Vec::with_capacity(items.len());
+        for (name, item) in &items {
+            let value = item.to_string();
+            let avg = if is_avg_available {
+                self.average
+                    .get(*name)
+                    .map(|v| format_u64(v.get(), item.is_counter()))
+                    .unwrap_or_else(|| "".to_string())
+            } else {
+                "".to_string()
+            };
+            value_width = std::cmp::max(value_width, value.len());
+            avg_width = std::cmp::max(avg_width, avg.len());
+            row_items.push((name.to_string(), value, avg));
+        }
+
+        let rows = row_items.into_iter().map(|(name, value, avg)| {
+            Row::new(vec![
+                Cell::from(name),
+                Cell::from(format!("{:>value_width$}", value)),
+                Cell::from(format!("{:>avg_width$}", avg)),
+            ])
+        });
+
+        let widths = [
+            Constraint::Percentage(50),
+            Constraint::Percentage(25),
+            Constraint::Percentage(25),
+        ];
+
+        let highlight_style = if self.focus == Focus::Sub {
+            Style::default().add_modifier(Modifier::REVERSED)
+        } else {
+            Style::default()
+        };
+        let highlight_symbol = if self.focus == Focus::Sub { "> " } else { "  " };
+
+        let selected = std::cmp::min(
+            self.detail_table_state.selected().unwrap_or(0),
+            items.len().saturating_sub(1),
+        );
+        self.detail_table_state.select(Some(selected));
+
+        let table = Table::new(rows)
+            .header(header)
+            .block(block)
+            .highlight_style(highlight_style)
+            .highlight_symbol(&highlight_symbol)
+            .widths(&widths);
+        f.render_stateful_widget(table, area, &mut self.detail_table_state);
     }
 
     fn make_block(&self, name: &str) -> Block<'static> {
@@ -361,6 +425,7 @@ impl UiState {
         self.history.back().expect("unreachable")
     }
 
+    // TODO: remove
     fn ensure_table_indices_are_in_ranges(&mut self) {
         let n = self.latest_metrics().root_metrics_count();
         if let Some(max) = n.checked_sub(1) {
@@ -369,15 +434,6 @@ impl UiState {
         } else {
             self.metrics_table_state.select(None);
         }
-
-        // TODO
-        // if self.latest_stats().connection_count() == 0 {
-        //     self.individual_table_state.select(None);
-        // } else {
-        //     let n = self.latest_stats().connection_count();
-        //     let i = std::cmp::min(self.individual_table_state.selected().unwrap_or(0), n - 1);
-        //     self.individual_table_state.select(Some(i));
-        // }
     }
 }
 

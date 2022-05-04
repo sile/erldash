@@ -39,6 +39,19 @@ impl Metrics {
             .map(|(k, v)| (k.as_str(), v))
     }
 
+    pub fn child_items<'a, 'b>(
+        &'a self,
+        parent: &'b str,
+    ) -> impl 'a + Iterator<Item = (&'a str, &'a MetricValue)>
+    where
+        'b: 'a,
+    {
+        self.items
+            .iter()
+            .filter(move |(_, v)| v.parent().as_ref().map_or(false, |&x| x == parent))
+            .map(|(k, v)| (k.as_str(), v))
+    }
+
     fn calc_delta(&mut self, prev: &Self) {
         let duration = self.timestamp - prev.timestamp;
         for (name, value) in &mut self.items {
@@ -79,11 +92,26 @@ impl MetricValue {
         }
     }
 
+    fn gauge_with_parent(value: u64, parent: &str) -> Self {
+        Self::Gauge {
+            value,
+            parent: Some(parent.to_owned()),
+        }
+    }
+
     fn counter(value: u64) -> Self {
         Self::Counter {
             value,
             delta_per_sec: None,
             parent: None,
+        }
+    }
+
+    fn counter_with_parent(value: u64, parent: &str) -> Self {
+        Self::Counter {
+            value,
+            delta_per_sec: None,
+            parent: Some(parent.to_owned()),
         }
     }
 
@@ -105,19 +133,23 @@ impl MetricValue {
             Self::Counter { parent, .. } => parent.as_ref().map(|x| x.as_str()),
         }
     }
+
+    pub fn is_counter(&self) -> bool {
+        matches!(self, Self::Counter { .. })
+    }
 }
 
 impl std::fmt::Display for MetricValue {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         if let Some(v) = self.value() {
-            write!(f, "{}", format_u64(v))
+            write!(f, "{}", format_u64(v, self.is_counter()))
         } else {
             write!(f, "")
         }
     }
 }
 
-pub fn format_u64(mut n: u64) -> String {
+pub fn format_u64(mut n: u64, is_delta: bool) -> String {
     let mut s = Vec::new();
     for i in 0.. {
         if i % 3 == 0 && i != 0 {
@@ -131,7 +163,13 @@ pub fn format_u64(mut n: u64) -> String {
         }
     }
     s.reverse();
-    String::from_utf8(s).expect("unreachable")
+    let mut s = String::from_utf8(s).expect("unreachable");
+    if is_delta {
+        s.push_str("/s");
+    } else {
+        s.push_str("  ");
+    }
+    s
 }
 
 #[derive(Debug, Clone)]
@@ -235,13 +273,33 @@ impl MetricsPoller {
         metrics.insert("statistics.runtime", MetricValue::counter(runtime));
 
         let (in_bytes, out_bytes) = self.rpc_client.get_statistics_io().await?;
-        metrics.insert("statistics.io.input_bytes", MetricValue::counter(in_bytes));
         metrics.insert(
-            "statistics.io.output_bytes",
-            MetricValue::counter(out_bytes),
+            "statistics.io_bytes",
+            MetricValue::counter(in_bytes + out_bytes),
+        );
+        metrics.insert(
+            "input_bytes",
+            MetricValue::counter_with_parent(in_bytes, "statistics.io_bytes"),
+        );
+        metrics.insert(
+            "output_bytes",
+            MetricValue::counter_with_parent(out_bytes, "statistics.io_bytes"),
         );
 
-        // pub run_queue_lengths: Vec<Gauge>,
+        let run_queue_lengths = self
+            .rpc_client
+            .get_statistics_u64_list("run_queue_lengths_all")
+            .await?;
+        let run_queue_total = run_queue_lengths.iter().copied().sum();
+        metrics.insert("statistics.run_queue", MetricValue::gauge(run_queue_total));
+
+        for (i, n) in run_queue_lengths.into_iter().enumerate() {
+            metrics.insert(
+                &format!("run_queue.{}", i),
+                MetricValue::gauge_with_parent(n, "statistics.run_queue"),
+            );
+        }
+
         // memory
         // pub microstate_accounting: Msacc
 

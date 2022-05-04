@@ -69,6 +69,11 @@ impl RpcClient {
         term_to_tuple_1st_u64(term)
     }
 
+    pub async fn get_statistics_u64_list(&self, item_name: &str) -> anyhow::Result<Vec<u64>> {
+        let term = self.get_statistics(item_name).await?;
+        term_to_u64_list(term)
+    }
+
     pub async fn get_statistics_io(&self) -> anyhow::Result<(u64, u64)> {
         let term = self.get_statistics("io").await?;
         if let Term::Tuple(tuple) = term {
@@ -147,5 +152,13 @@ fn term_to_u8(term: Term) -> anyhow::Result<u8> {
         Ok(u8::try_from(v.value)?)
     } else {
         anyhow::bail!("expected an integer, but got {}", term)
+    }
+}
+
+fn term_to_u64_list(term: Term) -> anyhow::Result<Vec<u64>> {
+    if let Term::List(list) = term {
+        list.elements.into_iter().map(term_to_u64).collect()
+    } else {
+        anyhow::bail!("expected a list, but got {}", term);
     }
 }
