@@ -2,14 +2,13 @@ use crate::erlang::{RpcClient, SystemVersion};
 use crate::Options;
 use std::collections::BTreeMap;
 use std::sync::mpsc;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant};
 
 pub type MetricsReceiver = mpsc::Receiver<Metrics>;
 pub type MetricsSender = mpsc::Sender<Metrics>;
 
 #[derive(Debug, Clone)]
 pub struct Metrics {
-    pub time: SystemTime,
     pub timestamp: Instant,
     pub items: BTreeMap<String, MetricValue>,
 }
@@ -17,7 +16,6 @@ pub struct Metrics {
 impl Metrics {
     fn new() -> Self {
         Self {
-            time: SystemTime::now(),
             timestamp: Instant::now(),
             items: BTreeMap::new(),
         }

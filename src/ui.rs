@@ -1,13 +1,17 @@
 use crate::erlang::SystemVersion;
 use crate::metrics::{format_u64, MetricValue, Metrics, MetricsReceiver};
 use crossterm::event::{KeyCode, KeyEvent};
+use ordered_float::OrderedFloat;
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 use tui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use tui::style::{Modifier, Style};
+use tui::symbols::Marker;
 use tui::text::{Span, Spans};
-use tui::widgets::{Block, Borders, Cell, Paragraph, Row, Table, TableState};
+use tui::widgets::{
+    Axis, Block, Borders, Cell, Chart, Dataset, GraphType, Paragraph, Row, Table, TableState,
+};
 
 type Terminal = tui::Terminal<tui::backend::CrosstermBackend<std::io::Stdout>>;
 type Frame<'a> = tui::Frame<'a, tui::backend::CrosstermBackend<std::io::Stdout>>;
@@ -332,11 +336,93 @@ impl UiState {
         f.render_widget(paragraph, area);
     }
 
+    fn chart_data(&self) -> (&str, Vec<(f64, f64)>) {
+        let root_metric_name = self
+            .latest_metrics()
+            .root_items()
+            .nth(self.metrics_table_state.selected().unwrap_or(0))
+            .expect("unreachable")
+            .0;
+
+        let metric_name = match self.focus {
+            Focus::Main => root_metric_name,
+            Focus::Sub => self
+                .latest_metrics()
+                .child_items(root_metric_name)
+                .nth(self.detail_table_state.selected().unwrap_or(0))
+                .map(|(k, _)| k)
+                .unwrap_or(root_metric_name),
+        };
+
+        let start = self.history[0].timestamp;
+        let mut data = Vec::with_capacity(self.history.len());
+        for metrics in &self.history {
+            let x = (metrics.timestamp - start).as_secs_f64();
+            if let Some(y) = metrics.items.get(metric_name).and_then(|x| x.value()) {
+                data.push((x, y as f64));
+            }
+        }
+        (metric_name, data)
+    }
+
     fn render_chart(&mut self, f: &mut Frame, area: Rect) {
-        let paragraph = Paragraph::new(vec![Spans::from("TODO")])
-            .block(self.make_block("Chart"))
-            .alignment(Alignment::Left);
-        f.render_widget(paragraph, area);
+        let (metric_name, data) = self.chart_data();
+        let block = self.make_block(&format!("Chart of {:?}", metric_name));
+
+        if data.is_empty() {
+            f.render_widget(block, area);
+            return;
+        }
+
+        let datasets = vec![Dataset::default()
+            .marker(Marker::Braille)
+            .graph_type(GraphType::Line)
+            .data(&data)];
+
+        let lower_bound = data
+            .iter()
+            .map(|(_, y)| OrderedFloat(*y))
+            .min()
+            .map(|y| y.0)
+            .expect("unreachable")
+            .floor();
+        let mut upper_bound = data
+            .iter()
+            .map(|(_, y)| OrderedFloat(*y))
+            .max()
+            .map(|y| y.0)
+            .expect("unreachable")
+            .ceil();
+        let is_constant = lower_bound == upper_bound;
+        if is_constant {
+            upper_bound = lower_bound + 1.0;
+        }
+
+        let y_labels = if is_constant {
+            vec![
+                Span::from(format_u64(lower_bound as u64, false)),
+                Span::from(""),
+            ]
+        } else {
+            vec![
+                Span::from(format_u64(lower_bound as u64, false)),
+                Span::from(format_u64(upper_bound as u64, false)),
+            ]
+        };
+
+        let chart = Chart::new(datasets)
+            .block(block)
+            .x_axis(
+                Axis::default()
+                    .labels(vec![Span::from("0s"), Span::from("60s")])
+                    .bounds([0.0, 60.0]),
+            )
+            .y_axis(
+                Axis::default()
+                    .labels(y_labels)
+                    .bounds([lower_bound, upper_bound]),
+            );
+        f.render_widget(chart, area);
     }
 
     fn collect_detailed_items(&self) -> (&str, Vec<(&str, &MetricValue)>) {
