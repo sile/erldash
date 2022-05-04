@@ -187,7 +187,7 @@ impl Drop for MetricsPollerHandle {
         if self.old_microstate_accounting_flag == false {
             if let Err(e) = smol::block_on(
                 self.rpc_client
-                    .set_system_flag_bool("microstate_accounting", false),
+                    .set_system_flag_bool("microstate_accounting", "false"),
             ) {
                 log::warn!("faild to disable microstate accounting: {e}");
             } else {
@@ -216,7 +216,7 @@ impl MetricsPoller {
         })?;
         let system_version = smol::block_on(rpc_client.get_system_version())?;
         let old_microstate_accounting_flag =
-            smol::block_on(rpc_client.set_system_flag_bool("microstate_accounting", true))?;
+            smol::block_on(rpc_client.set_system_flag_bool("microstate_accounting", "true"))?;
         log::debug!(
             "enabled microstate accounting (old flag state is {old_microstate_accounting_flag})"
         );
@@ -263,6 +263,14 @@ impl MetricsPoller {
 
     async fn poll_once(&mut self) -> anyhow::Result<Metrics> {
         let mut metrics = Metrics::new();
+
+        let _msacc = self
+            .rpc_client
+            .get_statistics_microstate_accounting()
+            .await?;
+        let maybe_first_poll = self.prev_metrics.items.is_empty();
+        if !maybe_first_poll {}
+
         let processes = self.rpc_client.get_system_info_u64("process_count").await?;
         metrics.insert("system_info.processe_count", MetricValue::gauge(processes));
 
@@ -345,7 +353,9 @@ impl MetricsPoller {
             );
         }
 
-        // pub microstate_accounting: Msacc
+        self.rpc_client
+            .set_system_flag_bool("microstate_accounting", "reset")
+            .await?;
 
         log::debug!(
             "MetricsPoller::poll_once(): elapsed={:?}",

@@ -1,5 +1,5 @@
 use erl_dist::node::NodeName;
-use erl_dist::term::{Atom, List, Term, Tuple};
+use erl_dist::term::{Atom, List, Map, Term, Tuple};
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone)]
@@ -86,17 +86,25 @@ impl RpcClient {
         }
     }
 
-    pub async fn set_system_flag_bool(&self, name: &str, value: bool) -> anyhow::Result<bool> {
+    pub async fn get_statistics_microstate_accounting(&self) -> anyhow::Result<Vec<MSAccThread>> {
+        let term = self.get_statistics("microstate_accounting").await?;
+        let list: List = term
+            .try_into()
+            .map_err(|x| anyhow::anyhow!("expected a list, but got {x}"))?;
+        list.elements
+            .into_iter()
+            .map(MSAccThread::from_term)
+            .collect()
+    }
+
+    pub async fn set_system_flag_bool(&self, name: &str, value: &str) -> anyhow::Result<bool> {
         let term = self
             .handle
             .clone()
             .call(
                 "erlang".into(),
                 "system_flag".into(),
-                List::from(vec![
-                    Atom::from(name).into(),
-                    Atom::from(value.to_string()).into(),
-                ]),
+                List::from(vec![Atom::from(name).into(), Atom::from(value).into()]),
             )
             .await?;
         term_to_bool(term)
@@ -212,12 +220,59 @@ fn term_to_u64_list(term: Term) -> anyhow::Result<Vec<u64>> {
 }
 
 fn term_to_bool(term: Term) -> anyhow::Result<bool> {
-    let atom: Atom = term
-        .try_into()
-        .map_err(|x| anyhow::anyhow!("expected an atom, but got {}", x))?;
+    let atom = term_to_atom(term)?;
     match atom.name.as_str() {
         "true" => Ok(true),
         "false" => Ok(false),
         _ => anyhow::bail!("expected 'true' or 'false', but got {}", atom.name),
+    }
+}
+
+fn term_to_atom(term: Term) -> anyhow::Result<Atom> {
+    term.try_into()
+        .map_err(|x| anyhow::anyhow!("expected an atom, but got {x}"))
+}
+
+#[derive(Debug, Clone)]
+pub struct MSAccThread {
+    pub thread_id: u64,
+    pub thread_type: String,
+    pub counters: BTreeMap<String, u64>,
+}
+
+impl MSAccThread {
+    fn from_term(term: Term) -> anyhow::Result<Self> {
+        let map: Map = term
+            .try_into()
+            .map_err(|x| anyhow::anyhow!("expected a map, but got {x}"))?;
+        let mut thread_id = None;
+        let mut thread_type = None;
+        let mut counters = BTreeMap::new();
+        for (k, v) in map.entries {
+            match term_to_atom(k)?.name.as_str() {
+                "id" => {
+                    thread_id = Some(term_to_u64(v)?);
+                }
+                "type" => {
+                    thread_type = Some(term_to_atom(v)?.name);
+                }
+                "counters" => {
+                    let counters_map: Map = v
+                        .try_into()
+                        .map_err(|x| anyhow::anyhow!("expected a map, but got {x}"))?;
+                    for (k, v) in counters_map.entries {
+                        counters.insert(term_to_atom(k)?.name, term_to_u64(v)?);
+                    }
+                }
+                k => {
+                    log::debug!("unknown msacc key: {:?}", k);
+                }
+            }
+        }
+        Ok(Self {
+            thread_id: thread_id.ok_or_else(|| anyhow::anyhow!("missing 'id' key"))?,
+            thread_type: thread_type.ok_or_else(|| anyhow::anyhow!("missing 'type' key"))?,
+            counters,
+        })
     }
 }
