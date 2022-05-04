@@ -27,8 +27,16 @@ impl Metrics {
         self.items.insert(name.to_owned(), value);
     }
 
+    // TODO: remove
     pub fn root_metrics_count(&self) -> usize {
         self.items.values().filter(|x| x.parent().is_none()).count()
+    }
+
+    pub fn root_items(&self) -> impl Iterator<Item = (&str, &MetricValue)> {
+        self.items
+            .iter()
+            .filter(|(_, v)| v.parent().is_none())
+            .map(|(k, v)| (k.as_str(), v))
     }
 }
 
@@ -59,6 +67,36 @@ impl MetricValue {
             Self::Counter { parent, .. } => parent.as_ref().map(|x| x.as_str()),
         }
     }
+}
+
+impl std::fmt::Display for MetricValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Self::Gauge { value, .. } => write!(f, "{}", format_u64(*value)),
+            Self::Counter {
+                delta_per_sec: Some(value),
+                ..
+            } => write!(f, "{}", format_u64(*value)),
+            Self::Counter { .. } => write!(f, ""),
+        }
+    }
+}
+
+pub fn format_u64(mut n: u64) -> String {
+    let mut s = Vec::new();
+    for i in 0.. {
+        if i % 3 == 0 && i != 0 {
+            s.push(b',');
+        }
+        let m = n % 10;
+        s.push(b'0' + m as u8);
+        n /= 10;
+        if n == 0 {
+            break;
+        }
+    }
+    s.reverse();
+    String::from_utf8(s).expect("unreachable")
 }
 
 #[derive(Debug, Clone)]
@@ -122,6 +160,12 @@ impl MetricsPoller {
 
         let ports = self.rpc_client.get_system_info_u64("port_count").await?;
         metrics.insert("count.ports", MetricValue::gauge(ports));
+
+        let atoms = self.rpc_client.get_system_info_u64("atom_count").await?;
+        metrics.insert("count.atoms", MetricValue::gauge(atoms));
+
+        let ets_tables = self.rpc_client.get_system_info_u64("ets_count").await?;
+        metrics.insert("count.ets_tables", MetricValue::gauge(ets_tables));
 
         // pub context_switches: Counter,
         // pub exact_reductions: Counter,

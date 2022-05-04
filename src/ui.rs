@@ -7,13 +7,14 @@ use std::time::Duration;
 use tui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use tui::style::{Modifier, Style};
 use tui::text::{Span, Spans};
-use tui::widgets::{Block, Borders, Paragraph, TableState};
+use tui::widgets::{Block, Borders, Cell, Paragraph, Row, Table, TableState};
 
 type Terminal = tui::Terminal<tui::backend::CrosstermBackend<std::io::Stdout>>;
 type Frame<'a> = tui::Frame<'a, tui::backend::CrosstermBackend<std::io::Stdout>>;
 
 const ONE_MINUTE: u64 = 60;
 const CHART_DURATION: u64 = ONE_MINUTE;
+const POLL_TIMEOUT: Duration = Duration::from_millis(10);
 
 pub struct App {
     terminal: Terminal,
@@ -38,7 +39,7 @@ impl App {
                 break;
             }
             if self.ui.pause {
-                std::thread::sleep(self.poll_timeout());
+                std::thread::sleep(POLL_TIMEOUT);
             } else {
                 self.handle_poll()?;
             }
@@ -46,12 +47,8 @@ impl App {
         Ok(())
     }
 
-    fn poll_timeout(&self) -> Duration {
-        Duration::from_millis(10)
-    }
-
     fn handle_poll(&mut self) -> anyhow::Result<()> {
-        match self.rx.recv_timeout(self.poll_timeout()) {
+        match self.rx.recv_timeout(POLL_TIMEOUT) {
             Err(mpsc::RecvTimeoutError::Disconnected) => {
                 anyhow::bail!("Erlang metrics polling thread terminated unexpectedly");
             }
@@ -84,7 +81,7 @@ impl App {
                     }
                 }
                 crossterm::event::Event::Resize(_, _) => {
-                    self.terminal.draw(|f| self.ui.render(f))?;
+                    self.render_ui()?;
                 }
                 _ => {}
             }
@@ -100,10 +97,34 @@ impl App {
             KeyCode::Char('p') => {
                 self.ui.pause = !self.ui.pause;
             }
-            KeyCode::Left => {}
-            KeyCode::Right => {}
-            KeyCode::Up => {}
-            KeyCode::Down => {}
+            KeyCode::Left => {
+                self.ui.focus = Focus::Main;
+            }
+            KeyCode::Right => {
+                self.ui.focus = Focus::Sub;
+            }
+            KeyCode::Up => {
+                let table = if self.ui.focus == Focus::Main {
+                    &mut self.ui.metrics_table_state
+                } else {
+                    todo!()
+                };
+
+                let i = table.selected().unwrap_or(0).saturating_sub(1);
+                table.select(Some(i));
+                self.ui.ensure_table_indices_are_in_ranges();
+            }
+            KeyCode::Down => {
+                let table = if self.ui.focus == Focus::Main {
+                    &mut self.ui.metrics_table_state
+                } else {
+                    todo!()
+                };
+
+                let i = table.selected().unwrap_or(0) + 1;
+                table.select(Some(i));
+                self.ui.ensure_table_indices_are_in_ranges();
+            }
             _ => {
                 return Ok(false);
             }
@@ -154,6 +175,7 @@ struct UiState {
     system_version: SystemVersion,
     pause: bool,
     history: VecDeque<Metrics>,
+    focus: Focus,
     metrics_table_state: TableState,
     //detail_table_state: TableState,
 }
@@ -164,6 +186,7 @@ impl UiState {
             system_version,
             pause: false,
             history: VecDeque::new(),
+            focus: Focus::Main,
             metrics_table_state: TableState::default(),
             //detail_table_state: TableState::default(),
         }
@@ -206,10 +229,55 @@ impl UiState {
         } else {
             self.make_block("Metrics")
         };
-        let paragraph = Paragraph::new(vec![Spans::from("TODO")])
+
+        let header_cells = ["Name", "Value", "Avg (1m)"]
+            .into_iter()
+            .map(|h| Cell::from(h).style(Style::default().add_modifier(Modifier::BOLD)));
+        let header = Row::new(header_cells).bottom_margin(1);
+
+        let items = self.latest_metrics().root_items().collect::<Vec<_>>();
+        let mut value_width = 0;
+        let avg_width = 0;
+        let mut row_items = Vec::with_capacity(items.len());
+        for (name, item) in &items {
+            let value = item.to_string();
+            let avg = "".to_string(); // TODO
+            value_width = std::cmp::max(value_width, value.len());
+            row_items.push((name.to_string(), value, avg));
+        }
+
+        let rows = row_items.into_iter().map(|(name, value, avg)| {
+            Row::new(vec![
+                Cell::from(name),
+                Cell::from(format!("{:>value_width$}", value)),
+                Cell::from(format!("{:>avg_width$}", avg)),
+            ])
+        });
+
+        let widths = [
+            Constraint::Percentage(50),
+            Constraint::Percentage(25),
+            Constraint::Percentage(25),
+        ];
+
+        let highlight_style = if self.focus == Focus::Main {
+            Style::default().add_modifier(Modifier::REVERSED)
+        } else {
+            Style::default()
+        };
+        let highlight_symbol = format!(
+            "{:>width$}> ",
+            self.metrics_table_state.selected().unwrap_or(0) + 1,
+            width = (items.len()).to_string().len()
+        );
+
+        let table = Table::new(rows)
+            .header(header)
             .block(block)
-            .alignment(Alignment::Left);
-        f.render_widget(paragraph, area);
+            .highlight_style(highlight_style)
+            .highlight_symbol(&highlight_symbol)
+            .widths(&widths);
+        f.render_stateful_widget(table, area, &mut self.metrics_table_state);
     }
 
     fn render_body_right(&mut self, f: &mut Frame, area: Rect) {
@@ -281,4 +349,10 @@ impl UiState {
         //     self.individual_table_state.select(Some(i));
         // }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum Focus {
+    Main,
+    Sub,
 }
