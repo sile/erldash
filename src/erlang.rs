@@ -1,5 +1,6 @@
 use erl_dist::node::NodeName;
-use erl_dist::term::{Atom, List, Term};
+use erl_dist::term::{Atom, List, Term, Tuple};
+use std::collections::BTreeMap;
 
 #[derive(Debug, Clone)]
 pub struct SystemVersion(String);
@@ -82,6 +83,37 @@ impl RpcClient {
             Ok((in_bytes, out_bytes))
         } else {
             anyhow::bail!("{} is not a tuple", term);
+        }
+    }
+
+    pub async fn get_memory(&self) -> anyhow::Result<BTreeMap<String, u64>> {
+        let term = self
+            .handle
+            .clone()
+            .call("erlang".into(), "memory".into(), List::nil())
+            .await?;
+        if let Term::List(list) = term {
+            list.elements
+                .into_iter()
+                .map(|x| {
+                    let tuple: Tuple = x
+                        .try_into()
+                        .map_err(|x| anyhow::anyhow!("expected a tuple, but got {}", x))?;
+                    anyhow::ensure!(
+                        tuple.elements.len() == 2,
+                        "expected a two-elements tuple, but got {}",
+                        tuple
+                    );
+                    let key: Atom = tuple.elements[0]
+                        .clone()
+                        .try_into()
+                        .map_err(|x| anyhow::anyhow!("expected an atom, but got {}", x))?;
+                    let value = term_to_u64(tuple.elements[1].clone())?;
+                    Ok((key.name, value))
+                })
+                .collect()
+        } else {
+            anyhow::bail!("expected a list, but got {}", term);
         }
     }
 

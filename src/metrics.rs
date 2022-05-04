@@ -274,16 +274,16 @@ impl MetricsPoller {
 
         let (in_bytes, out_bytes) = self.rpc_client.get_statistics_io().await?;
         metrics.insert(
-            "statistics.io_bytes",
+            "statistics.io.total_bytes",
             MetricValue::counter(in_bytes + out_bytes),
         );
         metrics.insert(
-            "input_bytes",
-            MetricValue::counter_with_parent(in_bytes, "statistics.io_bytes"),
+            "statistics.io.input_bytes",
+            MetricValue::counter_with_parent(in_bytes, "statistics.io.total_bytes"),
         );
         metrics.insert(
-            "output_bytes",
-            MetricValue::counter_with_parent(out_bytes, "statistics.io_bytes"),
+            "statistics.io.output_bytes",
+            MetricValue::counter_with_parent(out_bytes, "statistics.io.total_bytes"),
         );
 
         let run_queue_lengths = self
@@ -295,12 +295,23 @@ impl MetricsPoller {
 
         for (i, n) in run_queue_lengths.into_iter().enumerate() {
             metrics.insert(
-                &format!("run_queue.{}", i),
+                &format!("statistics.run_queue.{}", i),
                 MetricValue::gauge_with_parent(n, "statistics.run_queue"),
             );
         }
 
-        // memory
+        let mut memory = self.rpc_client.get_memory().await?;
+        metrics.insert(
+            "memory.total_bytes",
+            MetricValue::gauge(memory.remove("total").expect("unreachable")),
+        );
+        for (k, v) in memory {
+            metrics.insert(
+                &format!("memory.{k}_bytes"),
+                MetricValue::gauge_with_parent(v, "memory.total_bytes"),
+            );
+        }
+
         // pub microstate_accounting: Msacc
 
         log::debug!(
