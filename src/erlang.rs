@@ -63,33 +63,64 @@ impl RpcClient {
             .await?;
         term_to_u64(term)
     }
+
+    pub async fn get_statistics_1st_u64(&self, item_name: &str) -> anyhow::Result<u64> {
+        let term = self.get_statistics(item_name).await?;
+        term_to_tuple_1st_u64(term)
+    }
+
+    pub async fn get_statistics_io(&self) -> anyhow::Result<(u64, u64)> {
+        let term = self.get_statistics("io").await?;
+        if let Term::Tuple(tuple) = term {
+            let in_bytes = term_to_tuple_2nd_u64(tuple.elements[0].clone())?;
+            let out_bytes = term_to_tuple_2nd_u64(tuple.elements[1].clone())?;
+            Ok((in_bytes, out_bytes))
+        } else {
+            anyhow::bail!("{} is not a tuple", term);
+        }
+    }
+
+    async fn get_statistics(&self, item_name: &str) -> anyhow::Result<Term> {
+        let term = self
+            .handle
+            .clone()
+            .call(
+                "erlang".into(),
+                "statistics".into(),
+                List::from(vec![Atom::from(item_name).into()]),
+            )
+            .await?;
+        Ok(term)
+    }
 }
-//     pub async fn get_msacc_stats(
-//         &mut self,
-//         duration: Duration,
-//     ) -> anyhow::Result<self::msacc::MsaccData> {
-//         if let Ok(Some(e)) = self.err_rx.try_recv() {
-//             return Err(e.into());
-//         }
-//         self::msacc::get_msacc_stats(self.handle.clone(), duration).await
-//     }
 
-//     pub async fn get_memory_stats(&mut self) -> anyhow::Result<self::memory::MemoryStats> {
-//         self::memory::get_memory_stats(self.handle.clone()).await
-//     }
+fn term_to_tuple_1st_u64(term: Term) -> anyhow::Result<u64> {
+    if let Term::Tuple(tuple) = term {
+        anyhow::ensure!(
+            !tuple.elements.is_empty(),
+            "expected a non empty tuple, but got {}",
+            tuple
+        );
+        term_to_u64(tuple.elements[0].clone())
+    } else {
+        anyhow::bail!("{} is not a tuple", term)
+    }
+}
 
-//     pub async fn get_stats(&mut self) -> anyhow::Result<self::stats::Stats> {
-//         self::stats::Stats::collect(self.handle.clone()).await
-//     }
-// }
+fn term_to_tuple_2nd_u64(term: Term) -> anyhow::Result<u64> {
+    if let Term::Tuple(tuple) = term {
+        anyhow::ensure!(
+            tuple.elements.len() >= 2,
+            "expected a tuple having 2 or more elements, but got {}",
+            tuple
+        );
+        term_to_u64(tuple.elements[1].clone())
+    } else {
+        anyhow::bail!("{} is not a tuple", term)
+    }
+}
 
-// impl Drop for RpcClient {
-//     fn drop(&mut self) {
-//         self.handle.terminate();
-//     }
-// }
-
-pub fn term_to_u64(term: Term) -> anyhow::Result<u64> {
+fn term_to_u64(term: Term) -> anyhow::Result<u64> {
     let v = match term {
         Term::FixInteger(v) => v.value.try_into()?,
         Term::BigInteger(v) => v.value.try_into()?,

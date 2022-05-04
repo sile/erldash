@@ -38,6 +38,24 @@ impl Metrics {
             .filter(|(_, v)| v.parent().is_none())
             .map(|(k, v)| (k.as_str(), v))
     }
+
+    fn calc_delta(&mut self, prev: &Self) {
+        let duration = self.timestamp - prev.timestamp;
+        for (name, value) in &mut self.items {
+            if let MetricValue::Counter {
+                value,
+                delta_per_sec,
+                ..
+            } = value
+            {
+                if let Some(MetricValue::Counter { value: prev, .. }) = prev.items.get(name) {
+                    if let Some(delta) = value.checked_sub(*prev) {
+                        *delta_per_sec = Some(delta as f64 / duration.as_secs_f64());
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -48,7 +66,7 @@ pub enum MetricValue {
     },
     Counter {
         value: u64,
-        delta_per_sec: Option<u64>,
+        delta_per_sec: Option<f64>,
         parent: Option<String>,
     },
 }
@@ -61,6 +79,14 @@ impl MetricValue {
         }
     }
 
+    fn counter(value: u64) -> Self {
+        Self::Counter {
+            value,
+            delta_per_sec: None,
+            parent: None,
+        }
+    }
+
     // TODO: rename
     pub fn value(&self) -> Option<u64> {
         match self {
@@ -68,7 +94,7 @@ impl MetricValue {
             Self::Counter {
                 delta_per_sec: Some(v),
                 ..
-            } => Some(*v),
+            } => Some(v.round() as u64),
             Self::Counter { .. } => None,
         }
     }
@@ -83,13 +109,10 @@ impl MetricValue {
 
 impl std::fmt::Display for MetricValue {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            Self::Gauge { value, .. } => write!(f, "{}", format_u64(*value)),
-            Self::Counter {
-                delta_per_sec: Some(value),
-                ..
-            } => write!(f, "{}", format_u64(*value)),
-            Self::Counter { .. } => write!(f, ""),
+        if let Some(v) = self.value() {
+            write!(f, "{}", format_u64(v))
+        } else {
+            write!(f, "")
         }
     }
 }
@@ -119,6 +142,7 @@ pub struct MetricsPoller {
     options: Options,
     rpc_client: RpcClient,
     tx: MetricsSender,
+    prev_metrics: Metrics,
 }
 
 impl MetricsPoller {
@@ -136,6 +160,7 @@ impl MetricsPoller {
             options,
             rpc_client,
             tx,
+            prev_metrics: Metrics::new(),
         };
         std::thread::spawn(|| poller.run());
         Ok((system_version, rx))
@@ -168,30 +193,65 @@ impl MetricsPoller {
     async fn poll_once(&mut self) -> anyhow::Result<Metrics> {
         let mut metrics = Metrics::new();
         let processes = self.rpc_client.get_system_info_u64("process_count").await?;
-        metrics.insert("count.processes", MetricValue::gauge(processes));
+        metrics.insert("system_info.processe_count", MetricValue::gauge(processes));
 
         let ports = self.rpc_client.get_system_info_u64("port_count").await?;
-        metrics.insert("count.ports", MetricValue::gauge(ports));
+        metrics.insert("system_info.port_count", MetricValue::gauge(ports));
 
         let atoms = self.rpc_client.get_system_info_u64("atom_count").await?;
-        metrics.insert("count.atoms", MetricValue::gauge(atoms));
+        metrics.insert("system_info.atom_count", MetricValue::gauge(atoms));
 
         let ets_tables = self.rpc_client.get_system_info_u64("ets_count").await?;
-        metrics.insert("count.ets_tables", MetricValue::gauge(ets_tables));
+        metrics.insert("system_info.ets_count", MetricValue::gauge(ets_tables));
 
-        // pub context_switches: Counter,
-        // pub exact_reductions: Counter,
-        // pub io_input_bytes: Counter,
-        // pub io_output_bytes: Counter,
+        let context_switches = self
+            .rpc_client
+            .get_statistics_1st_u64("context_switches")
+            .await?;
+        metrics.insert(
+            "statistics.context_switches",
+            MetricValue::counter(context_switches),
+        );
+
+        let exact_reductions = self
+            .rpc_client
+            .get_statistics_1st_u64("exact_reductions")
+            .await?;
+        metrics.insert(
+            "statistics.exact_reductions",
+            MetricValue::counter(exact_reductions),
+        );
+
+        let garbage_collection = self
+            .rpc_client
+            .get_statistics_1st_u64("garbage_collection")
+            .await?;
+        metrics.insert(
+            "statistics.garbage_collection",
+            MetricValue::counter(garbage_collection),
+        );
+
+        let runtime = self.rpc_client.get_statistics_1st_u64("runtime").await?;
+        metrics.insert("statistics.runtime", MetricValue::counter(runtime));
+
+        let (in_bytes, out_bytes) = self.rpc_client.get_statistics_io().await?;
+        metrics.insert("statistics.io.input_bytes", MetricValue::counter(in_bytes));
+        metrics.insert(
+            "statistics.io.output_bytes",
+            MetricValue::counter(out_bytes),
+        );
+
         // pub run_queue_lengths: Vec<Gauge>,
-        // pub garbage_collection: u64,
-        // pub runtime: Counter,
+        // memory
         // pub microstate_accounting: Msacc
 
         log::debug!(
             "MetricsPoller::poll_once(): elapsed={:?}",
             metrics.timestamp.elapsed()
         );
+        metrics.calc_delta(&self.prev_metrics);
+
+        self.prev_metrics = metrics.clone();
 
         Ok(metrics)
     }
