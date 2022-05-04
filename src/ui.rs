@@ -240,7 +240,12 @@ impl UiState {
     }
 
     fn render_body_left(&mut self, f: &mut Frame, area: Rect) {
-        self.render_metrics(f, area);
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(0), Constraint::Length(5)].as_ref())
+            .split(area);
+        self.render_metrics(f, chunks[0]);
+        self.render_help(f, chunks[1]);
     }
 
     fn render_metrics(&mut self, f: &mut Frame, area: Rect) {
@@ -309,16 +314,11 @@ impl UiState {
     fn render_body_right(&mut self, f: &mut Frame, area: Rect) {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Min(0), Constraint::Length(5)].as_ref())
-            .split(area);
-        let upper_chunks = Layout::default()
-            .direction(Direction::Vertical)
             .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
-            .split(chunks[0]);
+            .split(area);
 
-        self.render_detail(f, upper_chunks[0]);
-        self.render_chart(f, upper_chunks[1]);
-        self.render_help(f, chunks[1]);
+        self.render_detail(f, chunks[0]);
+        self.render_chart(f, chunks[1]);
     }
 
     fn render_help(&mut self, f: &mut Frame, area: Rect) {
