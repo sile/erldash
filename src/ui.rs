@@ -1,9 +1,9 @@
 use crate::erlang::SystemVersion;
-use crate::metrics::{Metrics, MetricsReceiver};
+use crate::metrics::{format_u64, Metrics, MetricsReceiver};
 use crossterm::event::{KeyCode, KeyEvent};
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::sync::mpsc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use tui::style::{Modifier, Style};
 use tui::text::{Span, Spans};
@@ -55,13 +55,29 @@ impl App {
             Err(mpsc::RecvTimeoutError::Timeout) => {}
             Ok(metrics) => {
                 log::debug!("recv new metrics");
+
+                for (name, item) in &metrics.items {
+                    if let Some(v) = item.value() {
+                        self.ui.average.entry(name.clone()).or_default().add(v);
+                    }
+                }
+
                 let timestamp = metrics.timestamp;
                 self.ui.history.push_back(metrics);
-                while let Some(item) = self.ui.history.pop_front() {
-                    let duration = (timestamp - item.timestamp).as_secs();
+                while let Some(metrics) = self.ui.history.pop_front() {
+                    let duration = (timestamp - metrics.timestamp).as_secs();
                     if duration <= CHART_DURATION {
-                        self.ui.history.push_front(item);
+                        self.ui.history.push_front(metrics);
                         break;
+                    }
+                    for (name, item) in metrics.items {
+                        if let Some(v) = item.value() {
+                            self.ui
+                                .average
+                                .get_mut(&name)
+                                .expect("unreachable")
+                                .remove(v);
+                        }
                     }
                     log::debug!("remove old metrics");
                 }
@@ -172,9 +188,11 @@ impl Drop for App {
 
 #[derive(Debug)]
 struct UiState {
+    start: Instant,
     system_version: SystemVersion,
     pause: bool,
     history: VecDeque<Metrics>,
+    average: BTreeMap<String, AvgValue>,
     focus: Focus,
     metrics_table_state: TableState,
     //detail_table_state: TableState,
@@ -183,9 +201,11 @@ struct UiState {
 impl UiState {
     fn new(system_version: SystemVersion) -> Self {
         Self {
+            start: Instant::now(),
             system_version,
             pause: false,
             history: VecDeque::new(),
+            average: BTreeMap::new(),
             focus: Focus::Main,
             metrics_table_state: TableState::default(),
             //detail_table_state: TableState::default(),
@@ -235,14 +255,24 @@ impl UiState {
             .map(|h| Cell::from(h).style(Style::default().add_modifier(Modifier::BOLD)));
         let header = Row::new(header_cells).bottom_margin(1);
 
+        let is_avg_available = self.start.elapsed().as_secs() >= ONE_MINUTE;
+
         let items = self.latest_metrics().root_items().collect::<Vec<_>>();
         let mut value_width = 0;
-        let avg_width = 0;
+        let mut avg_width = 0;
         let mut row_items = Vec::with_capacity(items.len());
         for (name, item) in &items {
             let value = item.to_string();
-            let avg = "".to_string(); // TODO
+            let avg = if is_avg_available {
+                self.average
+                    .get(*name)
+                    .map(|v| format_u64(v.get()))
+                    .unwrap_or_else(|| "".to_string())
+            } else {
+                "".to_string()
+            };
             value_width = std::cmp::max(value_width, value.len());
+            avg_width = std::cmp::max(avg_width, avg.len());
             row_items.push((name.to_string(), value, avg));
         }
 
@@ -355,4 +385,26 @@ impl UiState {
 enum Focus {
     Main,
     Sub,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+struct AvgValue {
+    sum: u64,
+    cnt: usize,
+}
+
+impl AvgValue {
+    fn add(&mut self, v: u64) {
+        self.sum += v;
+        self.cnt += 1;
+    }
+
+    fn remove(&mut self, v: u64) {
+        self.sum -= v;
+        self.cnt -= 1;
+    }
+
+    fn get(&self) -> u64 {
+        (self.sum as f64 / self.cnt as f64).round() as u64
+    }
 }

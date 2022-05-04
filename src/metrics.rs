@@ -61,6 +61,18 @@ impl MetricValue {
         }
     }
 
+    // TODO: rename
+    pub fn value(&self) -> Option<u64> {
+        match self {
+            Self::Gauge { value, .. } => Some(*value),
+            Self::Counter {
+                delta_per_sec: Some(v),
+                ..
+            } => Some(*v),
+            Self::Counter { .. } => None,
+        }
+    }
+
     pub fn parent(&self) -> Option<&str> {
         match self {
             Self::Gauge { parent, .. } => parent.as_ref().map(|x| x.as_str()),
