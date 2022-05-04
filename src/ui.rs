@@ -1,5 +1,5 @@
 use crate::erlang::SystemVersion;
-use crate::metrics::{format_u64, MetricValue, Metrics, MetricsReceiver};
+use crate::metrics::{format_u64, MetricValue, Metrics, MetricsPollerHandle};
 use crossterm::event::{KeyCode, KeyEvent};
 use ordered_float::OrderedFloat;
 use std::collections::{BTreeMap, VecDeque};
@@ -22,17 +22,17 @@ const POLL_TIMEOUT: Duration = Duration::from_millis(10);
 
 pub struct App {
     terminal: Terminal,
-    rx: MetricsReceiver,
+    poller: MetricsPollerHandle,
     ui: UiState,
 }
 
 impl App {
-    pub fn new(system_version: SystemVersion, rx: MetricsReceiver) -> anyhow::Result<Self> {
+    pub fn new(system_version: SystemVersion, poller: MetricsPollerHandle) -> anyhow::Result<Self> {
         let terminal = Self::setup_terminal()?;
         log::debug!("setup terminal");
         Ok(Self {
             terminal,
-            rx,
+            poller,
             ui: UiState::new(system_version),
         })
     }
@@ -52,7 +52,7 @@ impl App {
     }
 
     fn handle_poll(&mut self) -> anyhow::Result<()> {
-        match self.rx.recv_timeout(POLL_TIMEOUT) {
+        match self.poller.rx.recv_timeout(POLL_TIMEOUT) {
             Err(mpsc::RecvTimeoutError::Disconnected) => {
                 anyhow::bail!("Erlang metrics polling thread terminated unexpectedly");
             }

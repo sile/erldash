@@ -20,7 +20,7 @@ pub fn find_cookie() -> anyhow::Result<String> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RpcClient {
     handle: erl_rpc::RpcClientHandle,
 }
@@ -84,6 +84,22 @@ impl RpcClient {
         } else {
             anyhow::bail!("{} is not a tuple", term);
         }
+    }
+
+    pub async fn set_system_flag_bool(&self, name: &str, value: bool) -> anyhow::Result<bool> {
+        let term = self
+            .handle
+            .clone()
+            .call(
+                "erlang".into(),
+                "system_flag".into(),
+                List::from(vec![
+                    Atom::from(name).into(),
+                    Atom::from(value.to_string()).into(),
+                ]),
+            )
+            .await?;
+        term_to_bool(term)
     }
 
     pub async fn get_memory(&self) -> anyhow::Result<BTreeMap<String, u64>> {
@@ -192,5 +208,16 @@ fn term_to_u64_list(term: Term) -> anyhow::Result<Vec<u64>> {
         list.elements.into_iter().map(term_to_u64).collect()
     } else {
         anyhow::bail!("expected a list, but got {}", term);
+    }
+}
+
+fn term_to_bool(term: Term) -> anyhow::Result<bool> {
+    let atom: Atom = term
+        .try_into()
+        .map_err(|x| anyhow::anyhow!("expected an atom, but got {}", x))?;
+    match atom.name.as_str() {
+        "true" => Ok(true),
+        "false" => Ok(false),
+        _ => anyhow::bail!("expected 'true' or 'false', but got {}", atom.name),
     }
 }

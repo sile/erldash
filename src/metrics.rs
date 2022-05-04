@@ -173,6 +173,30 @@ pub fn format_u64(mut n: u64, is_delta: bool) -> String {
 #[derive(Debug, Clone)]
 pub struct Msacc {}
 
+// TODO: rename
+#[derive(Debug)]
+pub struct MetricsPollerHandle {
+    pub rx: MetricsReceiver,
+    // TODO: system_version
+    rpc_client: RpcClient,
+    old_microstate_accounting_flag: bool,
+}
+
+impl Drop for MetricsPollerHandle {
+    fn drop(&mut self) {
+        if self.old_microstate_accounting_flag == false {
+            if let Err(e) = smol::block_on(
+                self.rpc_client
+                    .set_system_flag_bool("microstate_accounting", false),
+            ) {
+                log::warn!("faild to disable microstate accounting: {e}");
+            } else {
+                log::debug!("disabled microstate accounting");
+            }
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct MetricsPoller {
     options: Options,
@@ -182,7 +206,7 @@ pub struct MetricsPoller {
 }
 
 impl MetricsPoller {
-    pub fn start_thread(options: Options) -> anyhow::Result<(SystemVersion, MetricsReceiver)> {
+    pub fn start_thread(options: Options) -> anyhow::Result<(SystemVersion, MetricsPollerHandle)> {
         let (tx, rx) = mpsc::channel();
 
         let rpc_client: RpcClient = smol::block_on(async {
@@ -191,6 +215,17 @@ impl MetricsPoller {
             Ok(client) as anyhow::Result<_>
         })?;
         let system_version = smol::block_on(rpc_client.get_system_version())?;
+        let old_microstate_accounting_flag =
+            smol::block_on(rpc_client.set_system_flag_bool("microstate_accounting", true))?;
+        log::debug!(
+            "enabled microstate accounting (old flag state is {old_microstate_accounting_flag})"
+        );
+
+        let handle = MetricsPollerHandle {
+            rx,
+            rpc_client: rpc_client.clone(),
+            old_microstate_accounting_flag,
+        };
 
         let poller = Self {
             options,
@@ -199,7 +234,7 @@ impl MetricsPoller {
             prev_metrics: Metrics::new(),
         };
         std::thread::spawn(|| poller.run());
-        Ok((system_version, rx))
+        Ok((system_version, handle))
     }
 
     fn run(mut self) {
