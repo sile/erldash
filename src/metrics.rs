@@ -293,7 +293,7 @@ pub struct MetricsPollerHandle {
 
 impl Drop for MetricsPollerHandle {
     fn drop(&mut self) {
-        if self.old_microstate_accounting_flag == false {
+        if !self.old_microstate_accounting_flag {
             if let Err(e) = smol::block_on(
                 self.rpc_client
                     .set_system_flag_bool("microstate_accounting", "false"),

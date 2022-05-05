@@ -306,13 +306,12 @@ impl UiState {
         } else {
             Style::default()
         };
-        let highlight_symbol = "> ";
 
         let table = Table::new(rows)
             .header(header)
             .block(block)
             .highlight_style(highlight_style)
-            .highlight_symbol(&highlight_symbol)
+            .highlight_symbol("> ")
             .widths(&widths);
         f.render_stateful_widget(table, area, &mut self.metrics_table_state);
     }
@@ -497,7 +496,7 @@ impl UiState {
             .header(header)
             .block(block)
             .highlight_style(highlight_style)
-            .highlight_symbol(&highlight_symbol)
+            .highlight_symbol(highlight_symbol)
             .widths(&widths);
         f.render_stateful_widget(table, area, &mut self.detail_table_state);
     }
