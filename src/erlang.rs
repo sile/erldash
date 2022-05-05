@@ -77,21 +77,16 @@ impl RpcClient {
 
     pub async fn get_statistics_io(&self) -> anyhow::Result<(u64, u64)> {
         let term = self.get_statistics("io").await?;
-        if let Term::Tuple(tuple) = term {
-            let in_bytes = term_to_tuple_2nd_u64(tuple.elements[0].clone())?;
-            let out_bytes = term_to_tuple_2nd_u64(tuple.elements[1].clone())?;
-            Ok((in_bytes, out_bytes))
-        } else {
-            anyhow::bail!("{} is not a tuple", term);
-        }
+        let tuple = term_to_tuple(term)?;
+        let in_bytes = term_to_tuple_2nd_u64(tuple.elements[0].clone())?;
+        let out_bytes = term_to_tuple_2nd_u64(tuple.elements[1].clone())?;
+        Ok((in_bytes, out_bytes))
     }
 
     pub async fn get_statistics_microstate_accounting(&self) -> anyhow::Result<Vec<MSAccThread>> {
         let term = self.get_statistics("microstate_accounting").await?;
-        let list: List = term
-            .try_into()
-            .map_err(|x| anyhow::anyhow!("expected a list, but got {x}"))?;
-        list.elements
+        term_to_list(term)?
+            .elements
             .into_iter()
             .map(MSAccThread::from_term)
             .collect()
@@ -116,29 +111,21 @@ impl RpcClient {
             .clone()
             .call("erlang".into(), "memory".into(), List::nil())
             .await?;
-        if let Term::List(list) = term {
-            list.elements
-                .into_iter()
-                .map(|x| {
-                    let tuple: Tuple = x
-                        .try_into()
-                        .map_err(|x| anyhow::anyhow!("expected a tuple, but got {}", x))?;
-                    anyhow::ensure!(
-                        tuple.elements.len() == 2,
-                        "expected a two-elements tuple, but got {}",
-                        tuple
-                    );
-                    let key: Atom = tuple.elements[0]
-                        .clone()
-                        .try_into()
-                        .map_err(|x| anyhow::anyhow!("expected an atom, but got {}", x))?;
-                    let value = term_to_u64(tuple.elements[1].clone())?;
-                    Ok((key.name, value))
-                })
-                .collect()
-        } else {
-            anyhow::bail!("expected a list, but got {}", term);
-        }
+        term_to_list(term)?
+            .elements
+            .into_iter()
+            .map(|x| {
+                let tuple = term_to_tuple(x)?;
+                anyhow::ensure!(
+                    tuple.elements.len() == 2,
+                    "expected a two-elements tuple, but got {}",
+                    tuple
+                );
+                let key = term_to_atom(tuple.elements[0].clone())?;
+                let value = term_to_u64(tuple.elements[1].clone())?;
+                Ok((key.name, value))
+            })
+            .collect()
     }
 
     async fn get_statistics(&self, item_name: &str) -> anyhow::Result<Term> {
@@ -156,29 +143,23 @@ impl RpcClient {
 }
 
 fn term_to_tuple_1st_u64(term: Term) -> anyhow::Result<u64> {
-    if let Term::Tuple(tuple) = term {
-        anyhow::ensure!(
-            !tuple.elements.is_empty(),
-            "expected a non empty tuple, but got {}",
-            tuple
-        );
-        term_to_u64(tuple.elements[0].clone())
-    } else {
-        anyhow::bail!("{} is not a tuple", term)
-    }
+    let tuple = term_to_tuple(term)?;
+    anyhow::ensure!(
+        !tuple.elements.is_empty(),
+        "expected a non empty tuple, but got {}",
+        tuple
+    );
+    term_to_u64(tuple.elements[0].clone())
 }
 
 fn term_to_tuple_2nd_u64(term: Term) -> anyhow::Result<u64> {
-    if let Term::Tuple(tuple) = term {
-        anyhow::ensure!(
-            tuple.elements.len() >= 2,
-            "expected a tuple having 2 or more elements, but got {}",
-            tuple
-        );
-        term_to_u64(tuple.elements[1].clone())
-    } else {
-        anyhow::bail!("{} is not a tuple", term)
-    }
+    let tuple = term_to_tuple(term)?;
+    anyhow::ensure!(
+        tuple.elements.len() >= 2,
+        "expected a tuple having 2 or more elements, but got {}",
+        tuple
+    );
+    term_to_u64(tuple.elements[1].clone())
 }
 
 fn term_to_u64(term: Term) -> anyhow::Result<u64> {
@@ -191,16 +172,12 @@ fn term_to_u64(term: Term) -> anyhow::Result<u64> {
 }
 
 fn term_to_string(term: Term) -> anyhow::Result<String> {
-    if let Term::List(list) = term {
-        let bytes = list
-            .elements
-            .into_iter()
-            .map(term_to_u8)
-            .collect::<anyhow::Result<Vec<_>>>()?;
-        Ok(String::from_utf8(bytes)?)
-    } else {
-        anyhow::bail!("expected a string, but got {}", term);
-    }
+    let bytes = term_to_list(term)?
+        .elements
+        .into_iter()
+        .map(term_to_u8)
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    Ok(String::from_utf8(bytes)?)
 }
 
 fn term_to_u8(term: Term) -> anyhow::Result<u8> {
@@ -212,11 +189,11 @@ fn term_to_u8(term: Term) -> anyhow::Result<u8> {
 }
 
 fn term_to_u64_list(term: Term) -> anyhow::Result<Vec<u64>> {
-    if let Term::List(list) = term {
-        list.elements.into_iter().map(term_to_u64).collect()
-    } else {
-        anyhow::bail!("expected a list, but got {}", term);
-    }
+    term_to_list(term)?
+        .elements
+        .into_iter()
+        .map(term_to_u64)
+        .collect()
 }
 
 fn term_to_bool(term: Term) -> anyhow::Result<bool> {
@@ -231,6 +208,16 @@ fn term_to_bool(term: Term) -> anyhow::Result<bool> {
 fn term_to_atom(term: Term) -> anyhow::Result<Atom> {
     term.try_into()
         .map_err(|x| anyhow::anyhow!("expected an atom, but got {x}"))
+}
+
+fn term_to_tuple(term: Term) -> anyhow::Result<Tuple> {
+    term.try_into()
+        .map_err(|x| anyhow::anyhow!("expected a tuple, but got {x}"))
+}
+
+fn term_to_list(term: Term) -> anyhow::Result<List> {
+    term.try_into()
+        .map_err(|x| anyhow::anyhow!("expected a list, but got {x}"))
 }
 
 #[derive(Debug, Clone)]
