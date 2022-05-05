@@ -2,12 +2,17 @@
 name = "erldash"
 version = "0.1.0"
 edition = "2021"
+authors = ["Takeru Ohta <phjgt308@gmail.com>"]
+license = "MIT OR Apache-2.0"
+description = "A simple, terminal-based Erlang dashboard"
+homepage = "https://github.com/sile/erldash"
+repository = "https://github.com/sile/erldash"
+readme = "README.md"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 anyhow = "1"
-byte-unit = "4"
 clap = { version = "3", features = ["derive"] }
 crossterm = "0.23"
 dirs = "4"
