@@ -13,6 +13,8 @@ So you can use this dashboard out of the box without installing any additional p
 
 Metrics are collected using [`erlang:statistics/1`], [`erlang:memory/0`] and [`erlang:system_info/1`] functions.
 
+![erldash demo](erldash.gif)
+
 [the dynamic node name feature]: https://www.erlang.org/blog/otp-23-highlights/#dynamic-node-name
 [`erlang`]: https://www.erlang.org/doc/man/erlang.html
 [`erpc`]: https://www.erlang.org/doc/man/erpc.html
