@@ -63,11 +63,11 @@ impl App {
                 log::debug!("recv new metrics");
 
                 for (name, item) in &metrics.items {
-                    if let Some(avg) = self.ui.average.get_mut(name) {
+                    if let Some(avg) = self.ui.averages.get_mut(name) {
                         avg.add(item.clone());
                     } else {
                         self.ui
-                            .average
+                            .averages
                             .insert(name.clone(), AvgValue::new(item.clone()));
                     }
                 }
@@ -82,14 +82,13 @@ impl App {
                     }
                     for (name, item) in metrics.items {
                         self.ui
-                            .average
+                            .averages
                             .get_mut(&name)
                             .expect("unreachable")
                             .sub(item.clone());
                     }
                     log::debug!("remove old metrics");
                 }
-                self.ui.ensure_table_indices_are_in_ranges();
                 self.render_ui()?;
             }
         }
@@ -136,7 +135,6 @@ impl App {
 
                 let i = table.selected().unwrap_or(0).saturating_sub(1);
                 table.select(Some(i));
-                self.ui.ensure_table_indices_are_in_ranges();
             }
             KeyCode::Down => {
                 let table = if self.ui.focus == Focus::Main {
@@ -147,7 +145,6 @@ impl App {
 
                 let i = table.selected().unwrap_or(0) + 1;
                 table.select(Some(i));
-                self.ui.ensure_table_indices_are_in_ranges();
             }
             _ => {
                 return Ok(false);
@@ -200,7 +197,7 @@ struct UiState {
     system_version: SystemVersion,
     pause: bool,
     history: VecDeque<Metrics>,
-    average: BTreeMap<String, AvgValue>,
+    averages: BTreeMap<String, AvgValue>,
     focus: Focus,
     metrics_table_state: TableState,
     detail_table_state: TableState,
@@ -213,7 +210,7 @@ impl UiState {
             system_version,
             pause: false,
             history: VecDeque::new(),
-            average: BTreeMap::new(),
+            averages: BTreeMap::new(),
             focus: Focus::Main,
             metrics_table_state: TableState::default(),
             detail_table_state: TableState::default(),
@@ -268,16 +265,15 @@ impl UiState {
             .map(|h| Cell::from(h).style(Style::default().add_modifier(Modifier::BOLD)));
         let header = Row::new(header_cells).bottom_margin(1);
 
-        let is_avg_available = self.start.elapsed().as_secs() >= ONE_MINUTE;
-
         let items = self.latest_metrics().root_items().collect::<Vec<_>>();
+        let is_avg_available = self.start.elapsed().as_secs() >= ONE_MINUTE;
         let mut value_width = 0;
         let mut avg_width = 0;
         let mut row_items = Vec::with_capacity(items.len());
         for (name, item) in &items {
             let value = item.to_string();
             let avg = if is_avg_available {
-                self.average
+                self.averages
                     .get(*name)
                     .map(|v| v.get().to_string())
                     .unwrap_or_else(|| "".to_string())
@@ -302,12 +298,16 @@ impl UiState {
             Constraint::Percentage(25),
             Constraint::Percentage(25),
         ];
-
         let highlight_style = if self.focus == Focus::Main {
             Style::default().add_modifier(Modifier::REVERSED)
         } else {
             Style::default()
         };
+        let selected = std::cmp::min(
+            self.metrics_table_state.selected().unwrap_or(0),
+            items.len().saturating_sub(1),
+        );
+        self.metrics_table_state.select(Some(selected));
 
         let table = Table::new(rows)
             .header(header)
@@ -455,7 +455,7 @@ impl UiState {
         for (name, item) in &items {
             let value = item.to_string();
             let avg = if is_avg_available {
-                self.average
+                self.averages
                     .get(*name)
                     .map(|v| v.get().to_string())
                     .unwrap_or_else(|| "".to_string())
@@ -512,17 +512,6 @@ impl UiState {
 
     fn latest_metrics(&self) -> &Metrics {
         self.history.back().expect("unreachable")
-    }
-
-    // TODO: remove
-    fn ensure_table_indices_are_in_ranges(&mut self) {
-        let n = self.latest_metrics().root_items().count();
-        if let Some(max) = n.checked_sub(1) {
-            let i = std::cmp::min(self.metrics_table_state.selected().unwrap_or(0), max);
-            self.metrics_table_state.select(Some(i));
-        } else {
-            self.metrics_table_state.select(None);
-        }
     }
 }
 
