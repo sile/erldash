@@ -7,7 +7,7 @@ erldash
 
 A simple, terminal-based Erlang dashboard.
 
-`erldash` connects to an Erlang node using [the dynamic node name feature] to collect metrics.
+`erldash` connects to an Erlang node using [the dynamic node name feature] (since OTP-23) to collect metrics.
 It only depends on [`erlang`] and [`erpc`] modules.
 So you can use this dashboard out of the box without installing any additional packages to the target Erlang node.
 
