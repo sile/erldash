@@ -4,8 +4,8 @@ use std::collections::BTreeMap;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-pub type MetricsReceiver = mpsc::Receiver<Metrics>;
-pub type MetricsSender = mpsc::Sender<Metrics>;
+type MetricsReceiver = mpsc::Receiver<Metrics>;
+type MetricsSender = mpsc::Sender<Metrics>;
 
 #[derive(Debug, Clone)]
 pub struct Metrics {
@@ -23,11 +23,6 @@ impl Metrics {
 
     fn insert(&mut self, name: &str, value: MetricValue) {
         self.items.insert(name.to_owned(), value);
-    }
-
-    // TODO: remove
-    pub fn root_metrics_count(&self) -> usize {
-        self.items.values().filter(|x| x.parent().is_none()).count()
     }
 
     pub fn root_items(&self) -> impl Iterator<Item = (&str, &MetricValue)> {
@@ -54,14 +49,15 @@ impl Metrics {
         let duration = self.timestamp - prev.timestamp;
         for (name, value) in &mut self.items {
             if let MetricValue::Counter {
-                value,
-                delta_per_sec,
-                ..
+                raw_value, value, ..
             } = value
             {
-                if let Some(MetricValue::Counter { value: prev, .. }) = prev.items.get(name) {
-                    if let Some(delta) = value.checked_sub(*prev) {
-                        *delta_per_sec = Some(delta as f64 / duration.as_secs_f64());
+                if let Some(MetricValue::Counter {
+                    raw_value: prev, ..
+                }) = prev.items.get(name)
+                {
+                    if let Some(delta) = raw_value.checked_sub(*prev) {
+                        *value = Some(delta as f64 / duration.as_secs_f64());
                     }
                 }
             }
@@ -76,8 +72,8 @@ pub enum MetricValue {
         parent: Option<String>,
     },
     Counter {
-        value: u64,
-        delta_per_sec: Option<f64>,
+        raw_value: u64,
+        value: Option<f64>, // delta per second
         parent: Option<String>,
     },
     Utilization {
@@ -101,7 +97,7 @@ impl MetricValue {
         }
     }
 
-    pub fn gauge(value: u64) -> Self {
+    fn gauge(value: u64) -> Self {
         Self::Gauge {
             value,
             parent: None,
@@ -115,56 +111,38 @@ impl MetricValue {
         }
     }
 
-    pub fn counter(value: u64) -> Self {
+    fn counter(raw_value: u64) -> Self {
         Self::Counter {
-            value,
-            delta_per_sec: None,
+            raw_value,
+            value: None,
             parent: None,
         }
     }
 
-    fn counter_with_parent(value: u64, parent: &str) -> Self {
+    fn counter_with_parent(raw_value: u64, parent: &str) -> Self {
         Self::Counter {
-            value,
-            delta_per_sec: None,
+            raw_value,
+            value: None,
             parent: Some(parent.to_owned()),
         }
     }
 
-    // TODO: rename
-    pub fn value(&self) -> Option<f64> {
+    pub fn as_f64(&self) -> Option<f64> {
         match self {
             Self::Gauge { value, .. } => Some(*value as f64),
-            Self::Counter {
-                delta_per_sec: Some(v),
-                ..
-            } => Some(v.round()),
+            Self::Counter { value: Some(v), .. } => Some(v.round()),
             Self::Counter { .. } => None,
             Self::Utilization { value, .. } => Some(*value),
         }
     }
 
-    pub fn parent(&self) -> Option<&str> {
+    fn parent(&self) -> Option<&str> {
         match self {
             Self::Gauge { parent, .. } => parent.as_ref().map(|x| x.as_str()),
             Self::Counter { parent, .. } => parent.as_ref().map(|x| x.as_str()),
             Self::Utilization { parent, .. } => parent.as_ref().map(|x| x.as_str()),
         }
     }
-
-    // TODO
-    pub fn is_counter(&self) -> bool {
-        matches!(self, Self::Counter { .. })
-    }
-
-    // TODO
-    // pub fn suffix(&self) -> &'static str {
-    //     match self {
-    //         Self::Gauge { .. } => "  ",
-    //         Self::Utilization { .. } => " %",
-    //         Self::Counter { .. } => "/s",
-    //     }
-    // }
 }
 
 impl std::fmt::Display for MetricValue {
@@ -177,8 +155,7 @@ impl std::fmt::Display for MetricValue {
                 write!(f, "{:.1} %", value)
             }
             Self::Counter {
-                delta_per_sec: Some(value),
-                ..
+                value: Some(value), ..
             } => {
                 write!(f, "{}", format_u64(value.round() as u64, "/s"))
             }
@@ -198,30 +175,15 @@ impl std::ops::AddAssign for MetricValue {
             (Self::Utilization { value, .. }, Self::Utilization { value: rhs, .. }) => {
                 *value += rhs;
             }
-            (
-                Self::Counter {
-                    delta_per_sec: Some(value),
-                    ..
-                },
-                Self::Counter {
-                    delta_per_sec: Some(rhs),
-                    ..
-                },
-            ) => {
-                *value += rhs;
+            (Self::Counter { value: lhs, .. }, Self::Counter { value: rhs, .. }) => {
+                if let (Some(lhs), Some(rhs)) = (lhs.as_mut(), rhs) {
+                    *lhs += rhs;
+                } else {
+                    *lhs = rhs;
+                }
             }
-            (
-                Self::Counter { delta_per_sec, .. },
-                Self::Counter {
-                    delta_per_sec: Some(rhs),
-                    ..
-                },
-            ) => {
-                *delta_per_sec = Some(rhs);
-            }
-
-            _ => {
-                panic!("TODO");
+            (lhs, rhs) => {
+                panic!("cannot apply `MetricValue::add_assign()` to {lhs:?} and {rhs:?}",);
             }
         }
     }
@@ -236,28 +198,15 @@ impl std::ops::SubAssign for MetricValue {
             (Self::Utilization { value, .. }, Self::Utilization { value: rhs, .. }) => {
                 *value -= rhs;
             }
-            (
-                Self::Counter { .. },
-                Self::Counter {
-                    delta_per_sec: None,
-                    ..
-                },
-            ) => {}
-            (
-                Self::Counter {
-                    delta_per_sec: Some(value),
-                    ..
-                },
-                Self::Counter {
-                    delta_per_sec: Some(rhs),
-                    ..
-                },
-            ) => {
-                *value -= rhs;
+            (Self::Counter { value: lhs, .. }, Self::Counter { value: rhs, .. }) => {
+                if let (Some(lhs), Some(rhs)) = (lhs.as_mut(), rhs) {
+                    *lhs -= rhs;
+                } else {
+                    *lhs = rhs;
+                }
             }
-
-            _ => {
-                panic!("TODO");
+            (lhs, rhs) => {
+                panic!("cannot apply `MetricValue::sub_assign()` to {lhs:?} and {rhs:?}",);
             }
         }
     }
@@ -282,16 +231,21 @@ pub fn format_u64(mut n: u64, suffix: &str) -> String {
     s
 }
 
-// TODO: rename
 #[derive(Debug)]
-pub struct MetricsPollerHandle {
+pub struct MetricsPoller {
     pub rx: MetricsReceiver,
-    // TODO: system_version
+    pub system_version: SystemVersion,
     rpc_client: RpcClient,
     old_microstate_accounting_flag: bool,
 }
 
-impl Drop for MetricsPollerHandle {
+impl MetricsPoller {
+    pub fn start_thread(options: Options) -> anyhow::Result<Self> {
+        MetricsPollerThread::start_thread(options)
+    }
+}
+
+impl Drop for MetricsPoller {
     fn drop(&mut self) {
         if !self.old_microstate_accounting_flag {
             if let Err(e) = smol::block_on(
@@ -307,15 +261,15 @@ impl Drop for MetricsPollerHandle {
 }
 
 #[derive(Debug)]
-pub struct MetricsPoller {
+struct MetricsPollerThread {
     options: Options,
     rpc_client: RpcClient,
     tx: MetricsSender,
     prev_metrics: Metrics,
 }
 
-impl MetricsPoller {
-    pub fn start_thread(options: Options) -> anyhow::Result<(SystemVersion, MetricsPollerHandle)> {
+impl MetricsPollerThread {
+    fn start_thread(options: Options) -> anyhow::Result<MetricsPoller> {
         let (tx, rx) = mpsc::channel();
 
         let rpc_client: RpcClient = smol::block_on(async {
@@ -330,20 +284,23 @@ impl MetricsPoller {
             "enabled microstate accounting (old flag state is {old_microstate_accounting_flag})"
         );
 
-        let handle = MetricsPollerHandle {
+        let poller = MetricsPoller {
             rx,
+            system_version,
             rpc_client: rpc_client.clone(),
             old_microstate_accounting_flag,
         };
 
-        let poller = Self {
-            options,
-            rpc_client,
-            tx,
-            prev_metrics: Metrics::new(),
-        };
-        std::thread::spawn(|| poller.run());
-        Ok((system_version, handle))
+        std::thread::spawn(|| {
+            Self {
+                options,
+                rpc_client,
+                tx,
+                prev_metrics: Metrics::new(),
+            }
+            .run()
+        });
+        Ok(poller)
     }
 
     fn run(mut self) {

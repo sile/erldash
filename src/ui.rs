@@ -1,5 +1,5 @@
 use crate::erlang::SystemVersion;
-use crate::metrics::{format_u64, MetricValue, Metrics, MetricsPollerHandle};
+use crate::metrics::{format_u64, MetricValue, Metrics, MetricsPoller};
 use crossterm::event::{KeyCode, KeyEvent};
 use ordered_float::OrderedFloat;
 use std::collections::{BTreeMap, VecDeque};
@@ -22,14 +22,16 @@ const POLL_TIMEOUT: Duration = Duration::from_millis(10);
 
 pub struct App {
     terminal: Terminal,
-    poller: MetricsPollerHandle,
+    poller: MetricsPoller,
     ui: UiState,
 }
 
 impl App {
-    pub fn new(system_version: SystemVersion, poller: MetricsPollerHandle) -> anyhow::Result<Self> {
+    pub fn new(poller: MetricsPoller) -> anyhow::Result<Self> {
         let terminal = Self::setup_terminal()?;
         log::debug!("setup terminal");
+
+        let system_version = poller.system_version.clone();
         Ok(Self {
             terminal,
             poller,
@@ -359,7 +361,7 @@ impl UiState {
         let mut data = Vec::with_capacity(self.history.len());
         for metrics in &self.history {
             let x = (metrics.timestamp - start).as_secs_f64();
-            if let Some(y) = metrics.items.get(metric_name).and_then(|x| x.value()) {
+            if let Some(y) = metrics.items.get(metric_name).and_then(|x| x.as_f64()) {
                 data.push((x, y as f64));
             }
         }
@@ -514,7 +516,7 @@ impl UiState {
 
     // TODO: remove
     fn ensure_table_indices_are_in_ranges(&mut self) {
-        let n = self.latest_metrics().root_metrics_count();
+        let n = self.latest_metrics().root_items().count();
         if let Some(max) = n.checked_sub(1) {
             let i = std::cmp::min(self.metrics_table_state.selected().unwrap_or(0), max);
             self.metrics_table_state.select(Some(i));
@@ -561,19 +563,18 @@ impl AvgValue {
                 }
             }
             MetricValue::Counter {
-                delta_per_sec: Some(value),
-                ..
+                value: Some(value), ..
             } => {
                 let value = value / self.cnt as f64;
                 MetricValue::Counter {
-                    value: 0,
-                    delta_per_sec: Some(value),
+                    raw_value: 0,
+                    value: Some(value),
                     parent: None,
                 }
             }
             MetricValue::Counter { .. } => MetricValue::Counter {
-                value: 0,
-                delta_per_sec: None,
+                raw_value: 0,
+                value: None,
                 parent: None,
             },
             MetricValue::Utilization { value, .. } => {
