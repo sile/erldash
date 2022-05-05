@@ -1,4 +1,4 @@
-use crate::erlang::{RpcClient, SystemVersion};
+use crate::erlang::{MSAccThread, RpcClient, SystemVersion};
 use crate::Options;
 use std::collections::BTreeMap;
 use std::sync::mpsc;
@@ -80,10 +80,28 @@ pub enum MetricValue {
         delta_per_sec: Option<f64>,
         parent: Option<String>,
     },
+    Utilization {
+        value: f64,
+        parent: Option<String>,
+    },
 }
 
 impl MetricValue {
-    fn gauge(value: u64) -> Self {
+    pub fn utilization(value: f64) -> Self {
+        Self::Utilization {
+            value,
+            parent: None,
+        }
+    }
+
+    fn utilization_with_parent(value: f64, parent: &str) -> Self {
+        Self::Utilization {
+            value,
+            parent: Some(parent.to_owned()),
+        }
+    }
+
+    pub fn gauge(value: u64) -> Self {
         Self::Gauge {
             value,
             parent: None,
@@ -97,7 +115,7 @@ impl MetricValue {
         }
     }
 
-    fn counter(value: u64) -> Self {
+    pub fn counter(value: u64) -> Self {
         Self::Counter {
             value,
             delta_per_sec: None,
@@ -114,14 +132,15 @@ impl MetricValue {
     }
 
     // TODO: rename
-    pub fn value(&self) -> Option<u64> {
+    pub fn value(&self) -> Option<f64> {
         match self {
-            Self::Gauge { value, .. } => Some(*value),
+            Self::Gauge { value, .. } => Some(*value as f64),
             Self::Counter {
                 delta_per_sec: Some(v),
                 ..
-            } => Some(v.round() as u64),
+            } => Some(v.round()),
             Self::Counter { .. } => None,
+            Self::Utilization { value, .. } => Some(*value),
         }
     }
 
@@ -129,25 +148,122 @@ impl MetricValue {
         match self {
             Self::Gauge { parent, .. } => parent.as_ref().map(|x| x.as_str()),
             Self::Counter { parent, .. } => parent.as_ref().map(|x| x.as_str()),
+            Self::Utilization { parent, .. } => parent.as_ref().map(|x| x.as_str()),
         }
     }
 
+    // TODO
     pub fn is_counter(&self) -> bool {
         matches!(self, Self::Counter { .. })
     }
+
+    // TODO
+    // pub fn suffix(&self) -> &'static str {
+    //     match self {
+    //         Self::Gauge { .. } => "  ",
+    //         Self::Utilization { .. } => " %",
+    //         Self::Counter { .. } => "/s",
+    //     }
+    // }
 }
 
 impl std::fmt::Display for MetricValue {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        if let Some(v) = self.value() {
-            write!(f, "{}", format_u64(v, self.is_counter()))
-        } else {
-            write!(f, "")
+        match self {
+            Self::Gauge { value, .. } => {
+                write!(f, "{}", format_u64(*value, "  "))
+            }
+            Self::Utilization { value, .. } => {
+                write!(f, "{:.1} %", value)
+            }
+            Self::Counter {
+                delta_per_sec: Some(value),
+                ..
+            } => {
+                write!(f, "{}", format_u64(value.round() as u64, "/s"))
+            }
+            Self::Counter { .. } => {
+                write!(f, "")
+            }
         }
     }
 }
 
-pub fn format_u64(mut n: u64, is_delta: bool) -> String {
+impl std::ops::AddAssign for MetricValue {
+    fn add_assign(&mut self, rhs: Self) {
+        match (self, rhs) {
+            (Self::Gauge { value, .. }, Self::Gauge { value: rhs, .. }) => {
+                *value += rhs;
+            }
+            (Self::Utilization { value, .. }, Self::Utilization { value: rhs, .. }) => {
+                *value += rhs;
+            }
+            (
+                Self::Counter {
+                    delta_per_sec: Some(value),
+                    ..
+                },
+                Self::Counter {
+                    delta_per_sec: Some(rhs),
+                    ..
+                },
+            ) => {
+                *value += rhs;
+            }
+            (
+                Self::Counter { delta_per_sec, .. },
+                Self::Counter {
+                    delta_per_sec: Some(rhs),
+                    ..
+                },
+            ) => {
+                *delta_per_sec = Some(rhs);
+            }
+
+            _ => {
+                panic!("TODO");
+            }
+        }
+    }
+}
+
+impl std::ops::SubAssign for MetricValue {
+    fn sub_assign(&mut self, rhs: Self) {
+        match (self, rhs) {
+            (Self::Gauge { value, .. }, Self::Gauge { value: rhs, .. }) => {
+                *value -= rhs;
+            }
+            (Self::Utilization { value, .. }, Self::Utilization { value: rhs, .. }) => {
+                *value -= rhs;
+            }
+            (
+                Self::Counter { .. },
+                Self::Counter {
+                    delta_per_sec: None,
+                    ..
+                },
+            ) => {}
+            (
+                Self::Counter {
+                    delta_per_sec: Some(value),
+                    ..
+                },
+                Self::Counter {
+                    delta_per_sec: Some(rhs),
+                    ..
+                },
+            ) => {
+                *value -= rhs;
+            }
+
+            _ => {
+                panic!("TODO");
+            }
+        }
+    }
+}
+
+pub fn format_u64(mut n: u64, suffix: &str) -> String {
     let mut s = Vec::new();
     for i in 0.. {
         if i % 3 == 0 && i != 0 {
@@ -162,16 +278,9 @@ pub fn format_u64(mut n: u64, is_delta: bool) -> String {
     }
     s.reverse();
     let mut s = String::from_utf8(s).expect("unreachable");
-    if is_delta {
-        s.push_str("/s");
-    } else {
-        s.push_str("  ");
-    }
+    s.push_str(suffix);
     s
 }
-
-#[derive(Debug, Clone)]
-pub struct Msacc {}
 
 // TODO: rename
 #[derive(Debug)]
@@ -261,15 +370,67 @@ impl MetricsPoller {
         })
     }
 
+    fn insert_msacc_metrics(&self, metrics: &mut Metrics, msacc_threads: &[MSAccThread]) {
+        let mut aggregated_per_type = BTreeMap::<_, ThreadTime>::new();
+        let mut aggregated_per_state_per_type = BTreeMap::<_, BTreeMap<&str, u64>>::new();
+        let mut aggregated_per_thread_per_type = BTreeMap::<_, BTreeMap<u64, ThreadTime>>::new();
+
+        for thread in msacc_threads {
+            let x = aggregated_per_type.entry(&thread.thread_type).or_default();
+            let realtime = thread.counters.values().copied().sum::<u64>();
+            let sleeptime = thread.counters["sleep"];
+            x.realtime += realtime;
+            x.runtime += realtime - sleeptime;
+
+            let x = aggregated_per_thread_per_type
+                .entry(&thread.thread_type)
+                .or_default()
+                .entry(thread.thread_id)
+                .or_default();
+            x.realtime += realtime;
+            x.runtime += realtime - sleeptime;
+
+            for (state, value) in &thread.counters {
+                *aggregated_per_state_per_type
+                    .entry(&thread.thread_type)
+                    .or_default()
+                    .entry(state)
+                    .or_default() += *value;
+            }
+        }
+        for (ty, time) in aggregated_per_type {
+            let root_name = format!("utilization.{ty}");
+            metrics.insert(&root_name, MetricValue::utilization(time.utilization()));
+            for (state, value) in &aggregated_per_state_per_type[ty] {
+                let u = *value as f64 / time.realtime as f64 * 100.0;
+                metrics.insert(
+                    &format!("{root_name}.state.{state}"),
+                    MetricValue::utilization_with_parent(u, &root_name),
+                );
+            }
+
+            let id_width = aggregated_per_thread_per_type[ty]
+                .keys()
+                .map(|id| id / 10 + 1)
+                .max()
+                .unwrap_or(1) as usize;
+            for (thread_id, time) in &aggregated_per_thread_per_type[ty] {
+                metrics.insert(
+                    &format!("{root_name}.thread.{:0id_width$}", thread_id),
+                    MetricValue::utilization_with_parent(time.utilization(), &root_name),
+                );
+            }
+        }
+    }
+
     async fn poll_once(&mut self) -> anyhow::Result<Metrics> {
         let mut metrics = Metrics::new();
 
-        let _msacc = self
+        let msacc = self
             .rpc_client
             .get_statistics_microstate_accounting()
             .await?;
-        let maybe_first_poll = self.prev_metrics.items.is_empty();
-        if !maybe_first_poll {}
+        self.insert_msacc_metrics(&mut metrics, &msacc);
 
         let processes = self.rpc_client.get_system_info_u64("process_count").await?;
         metrics.insert("system_info.processe_count", MetricValue::gauge(processes));
@@ -366,5 +527,17 @@ impl MetricsPoller {
         self.prev_metrics = metrics.clone();
 
         Ok(metrics)
+    }
+}
+
+#[derive(Debug, Default)]
+struct ThreadTime {
+    runtime: u64,
+    realtime: u64,
+}
+
+impl ThreadTime {
+    fn utilization(&self) -> f64 {
+        self.runtime as f64 / self.realtime as f64 * 100.0
     }
 }

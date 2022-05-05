@@ -61,8 +61,12 @@ impl App {
                 log::debug!("recv new metrics");
 
                 for (name, item) in &metrics.items {
-                    if let Some(v) = item.value() {
-                        self.ui.average.entry(name.clone()).or_default().add(v);
+                    if let Some(avg) = self.ui.average.get_mut(name) {
+                        avg.add(item.clone());
+                    } else {
+                        self.ui
+                            .average
+                            .insert(name.clone(), AvgValue::new(item.clone()));
                     }
                 }
 
@@ -75,13 +79,11 @@ impl App {
                         break;
                     }
                     for (name, item) in metrics.items {
-                        if let Some(v) = item.value() {
-                            self.ui
-                                .average
-                                .get_mut(&name)
-                                .expect("unreachable")
-                                .remove(v);
-                        }
+                        self.ui
+                            .average
+                            .get_mut(&name)
+                            .expect("unreachable")
+                            .sub(item.clone());
                     }
                     log::debug!("remove old metrics");
                 }
@@ -275,7 +277,7 @@ impl UiState {
             let avg = if is_avg_available {
                 self.average
                     .get(*name)
-                    .map(|v| format_u64(v.get(), item.is_counter()))
+                    .map(|v| v.get().to_string())
                     .unwrap_or_else(|| "".to_string())
             } else {
                 "".to_string()
@@ -400,13 +402,13 @@ impl UiState {
 
         let y_labels = if is_constant {
             vec![
-                Span::from(format_u64(lower_bound as u64, false)),
+                Span::from(format_u64(lower_bound as u64, "")),
                 Span::from(""),
             ]
         } else {
             vec![
-                Span::from(format_u64(lower_bound as u64, false)),
-                Span::from(format_u64(upper_bound as u64, false)),
+                Span::from(format_u64(lower_bound as u64, "")),
+                Span::from(format_u64(upper_bound as u64, "")),
             ]
         };
 
@@ -454,7 +456,7 @@ impl UiState {
             let avg = if is_avg_available {
                 self.average
                     .get(*name)
-                    .map(|v| format_u64(v.get(), item.is_counter()))
+                    .map(|v| v.get().to_string())
                     .unwrap_or_else(|| "".to_string())
             } else {
                 "".to_string()
@@ -529,24 +531,59 @@ enum Focus {
     Sub,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone)]
 struct AvgValue {
-    sum: u64,
+    sum: MetricValue,
     cnt: usize,
 }
 
 impl AvgValue {
-    fn add(&mut self, v: u64) {
+    fn new(value: MetricValue) -> Self {
+        Self { sum: value, cnt: 1 }
+    }
+
+    fn add(&mut self, v: MetricValue) {
         self.sum += v;
         self.cnt += 1;
     }
 
-    fn remove(&mut self, v: u64) {
+    fn sub(&mut self, v: MetricValue) {
         self.sum -= v;
         self.cnt -= 1;
     }
 
-    fn get(&self) -> u64 {
-        (self.sum as f64 / self.cnt as f64).round() as u64
+    fn get(&self) -> MetricValue {
+        match self.sum {
+            MetricValue::Gauge { value, .. } => {
+                let value = (value as f64 / self.cnt as f64).round() as u64;
+                MetricValue::Gauge {
+                    value,
+                    parent: None,
+                }
+            }
+            MetricValue::Counter {
+                delta_per_sec: Some(value),
+                ..
+            } => {
+                let value = value / self.cnt as f64;
+                MetricValue::Counter {
+                    value: 0,
+                    delta_per_sec: Some(value),
+                    parent: None,
+                }
+            }
+            MetricValue::Counter { .. } => MetricValue::Counter {
+                value: 0,
+                delta_per_sec: None,
+                parent: None,
+            },
+            MetricValue::Utilization { value, .. } => {
+                let value = value / self.cnt as f64;
+                MetricValue::Utilization {
+                    value,
+                    parent: None,
+                }
+            }
+        }
     }
 }
