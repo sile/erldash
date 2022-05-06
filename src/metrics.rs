@@ -201,8 +201,6 @@ impl std::ops::SubAssign for MetricValue {
             (Self::Counter { value: lhs, .. }, Self::Counter { value: rhs, .. }) => {
                 if let (Some(lhs), Some(rhs)) = (lhs.as_mut(), rhs) {
                     *lhs -= rhs;
-                } else {
-                    *lhs = rhs;
                 }
             }
             (lhs, rhs) => {
