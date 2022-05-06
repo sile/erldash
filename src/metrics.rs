@@ -452,9 +452,10 @@ impl MetricsPollerThread {
         let run_queue_total = run_queue_lengths.iter().copied().sum();
         metrics.insert("statistics.run_queue", MetricValue::gauge(run_queue_total));
 
+        let width = run_queue_lengths.len() / 10 + 1;
         for (i, n) in run_queue_lengths.into_iter().enumerate() {
             metrics.insert(
-                &format!("statistics.run_queue.{}", i),
+                &format!("statistics.run_queue.{:0width$}", i),
                 MetricValue::gauge_with_parent(n, "statistics.run_queue"),
             );
         }
