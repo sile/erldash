@@ -388,7 +388,7 @@ impl MetricsPollerThread {
         self.insert_msacc_metrics(&mut metrics, &msacc);
 
         let processes = self.rpc_client.get_system_info_u64("process_count").await?;
-        metrics.insert("system_info.processe_count", MetricValue::gauge(processes));
+        metrics.insert("system_info.process_count", MetricValue::gauge(processes));
 
         let ports = self.rpc_client.get_system_info_u64("port_count").await?;
         metrics.insert("system_info.port_count", MetricValue::gauge(ports));
