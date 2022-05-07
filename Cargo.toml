@@ -1,6 +1,6 @@
 [package]
 name = "erldash"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 authors = ["Takeru Ohta <phjgt308@gmail.com>"]
 license = "MIT OR Apache-2.0"
