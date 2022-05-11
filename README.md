@@ -31,6 +31,7 @@ Pre-built binaries for Linux and MacOS are available in [the releases page](http
 
 ```console
 // An example to download the binary for Linux.
+$ VERSION=...  # Set the target erldash version such as "0.1.2"
 $ curl -L https://github.com/sile/erldash/releases/download/${VERSION}/erldash-${VERSION}.x86_64-unknown-linux-musl -o erldash
 $ chmod +x erldash
 $ ./erldash
@@ -43,6 +44,8 @@ If you have installed `cargo` (the package manager for Rust), you can install `e
 $ cargo install erldash
 $ erldash
 ```
+
+Note that you need to use Rust-v1.58.0 or later to build `erldash`.
 
 Usage
 -----
