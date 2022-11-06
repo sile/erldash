@@ -362,7 +362,7 @@ impl UiState {
         for metrics in &self.history {
             let x = (metrics.timestamp - start).as_secs_f64();
             if let Some(y) = metrics.items.get(metric_name).and_then(|x| x.as_f64()) {
-                data.push((x, y as f64));
+                data.push((x, y));
             }
         }
         (metric_name, data)
