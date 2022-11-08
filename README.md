@@ -2,6 +2,7 @@ erldash
 =======
 
 [![erldash](https://img.shields.io/crates/v/erldash.svg)](https://crates.io/crates/erldash)
+[![Packaging status](https://repology.org/badge/tiny-repos/erldash.svg)](https://repology.org/project/erldash/versions)
 [![Actions Status](https://github.com/sile/erldash/workflows/CI/badge.svg)](https://github.com/sile/erldash/actions)
 ![License](https://img.shields.io/crates/l/erldash)
 
