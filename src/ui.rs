@@ -276,7 +276,7 @@ impl UiState {
                 self.averages
                     .get(*name)
                     .map(|v| v.get().to_string())
-                    .unwrap_or_else(|| "".to_string())
+                    .unwrap_or("".to_string())
             } else {
                 "".to_string()
             };
@@ -458,7 +458,7 @@ impl UiState {
                 self.averages
                     .get(*name)
                     .map(|v| v.get().to_string())
-                    .unwrap_or_else(|| "".to_string())
+                    .unwrap_or("".to_string())
             } else {
                 "".to_string()
             };
