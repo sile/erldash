@@ -384,13 +384,13 @@ impl UiState {
         let lower_bound = data
             .iter()
             .map(|(_, y)| *y)
-            .min_by(|a, b| a.total_cmp(&b))
+            .min_by(|a, b| a.total_cmp(b))
             .expect("unreachable")
             .floor();
         let mut upper_bound = data
             .iter()
             .map(|(_, y)| *y)
-            .max_by(|a, b| a.total_cmp(&b))
+            .max_by(|a, b| a.total_cmp(b))
             .expect("unreachable")
             .ceil();
         let is_constant = lower_bound == upper_bound;
