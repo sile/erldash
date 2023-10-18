@@ -1,5 +1,6 @@
 use crate::erlang::{MSAccThread, RpcClient, SystemVersion};
 use crate::Options;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
@@ -7,16 +8,16 @@ use std::time::{Duration, Instant};
 type MetricsReceiver = mpsc::Receiver<Metrics>;
 type MetricsSender = mpsc::Sender<Metrics>;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Metrics {
-    pub timestamp: Instant,
+    pub timestamp: Duration,
     pub items: BTreeMap<String, MetricValue>,
 }
 
 impl Metrics {
-    fn new() -> Self {
+    fn new(start: Instant) -> Self {
         Self {
-            timestamp: Instant::now(),
+            timestamp: start.elapsed(),
             items: BTreeMap::new(),
         }
     }
@@ -65,7 +66,7 @@ impl Metrics {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum MetricValue {
     Gauge {
         value: u64,
@@ -264,6 +265,7 @@ struct MetricsPollerThread {
     rpc_client: RpcClient,
     tx: MetricsSender,
     prev_metrics: Metrics,
+    start: Instant,
 }
 
 impl MetricsPollerThread {
@@ -290,11 +292,13 @@ impl MetricsPollerThread {
         };
 
         std::thread::spawn(|| {
+            let start = Instant::now();
             Self {
                 options,
                 rpc_client,
                 tx,
-                prev_metrics: Metrics::new(),
+                prev_metrics: Metrics::new(start),
+                start,
             }
             .run()
         });
@@ -303,6 +307,7 @@ impl MetricsPollerThread {
 
     fn run(mut self) {
         let interval = Duration::from_secs(self.options.polling_interval.get() as u64);
+        let mut next_time = Duration::from_secs(0);
         smol::block_on(async {
             loop {
                 match self.poll_once().await {
@@ -311,12 +316,19 @@ impl MetricsPollerThread {
                         break;
                     }
                     Ok(metrics) => {
-                        let elapsed = metrics.timestamp.elapsed();
+                        let elapsed = metrics.timestamp;
+
+                        if self.options.record.is_some() {
+                            todo!()
+                        }
+
                         if self.tx.send(metrics).is_err() {
                             log::debug!("the main thread has terminated");
                             break;
                         }
-                        if let Some(sleep_duration) = interval.checked_sub(elapsed) {
+
+                        next_time += interval;
+                        if let Some(sleep_duration) = next_time.checked_sub(elapsed) {
                             std::thread::sleep(sleep_duration);
                         }
                     }
@@ -379,7 +391,7 @@ impl MetricsPollerThread {
     }
 
     async fn poll_once(&mut self) -> anyhow::Result<Metrics> {
-        let mut metrics = Metrics::new();
+        let mut metrics = Metrics::new(self.start);
 
         let msacc = self
             .rpc_client
@@ -476,7 +488,7 @@ impl MetricsPollerThread {
 
         log::debug!(
             "MetricsPoller::poll_once(): elapsed={:?}",
-            metrics.timestamp.elapsed()
+            metrics.timestamp
         );
         metrics.calc_delta(&self.prev_metrics);
 
