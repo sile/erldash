@@ -19,9 +19,9 @@ pub struct Options {
     #[clap(long, short = 'c')]
     pub cookie: Option<String>,
 
-    /// TODO: doc
+    /// If specified, the collected metrics will be recorded to the given file and can be replayed later.
     #[clap(long)]
-    record: Option<PathBuf>,
+    pub record: Option<PathBuf>,
 }
 
 impl Options {

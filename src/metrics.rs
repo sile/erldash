@@ -1,6 +1,9 @@
 use crate::erlang::{MSAccThread, RpcClient, SystemVersion};
 use crate::Options;
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
+use smol::fs::File;
+use smol::io::AsyncWriteExt;
 use std::collections::BTreeMap;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
@@ -266,6 +269,7 @@ struct MetricsPollerThread {
     tx: MetricsSender,
     prev_metrics: Metrics,
     start: Instant,
+    record_file: Option<File>,
 }
 
 impl MetricsPollerThread {
@@ -291,6 +295,14 @@ impl MetricsPollerThread {
             old_microstate_accounting_flag,
         };
 
+        let record_file = if let Some(path) = &options.record {
+            Some(File::from(std::fs::File::create(&path).with_context(
+                || format!("failed to record file {}", path.display()),
+            )?))
+        } else {
+            None
+        };
+
         std::thread::spawn(|| {
             let start = Instant::now();
             Self {
@@ -299,6 +311,7 @@ impl MetricsPollerThread {
                 tx,
                 prev_metrics: Metrics::new(start),
                 start,
+                record_file,
             }
             .run()
         });
@@ -318,8 +331,24 @@ impl MetricsPollerThread {
                     Ok(metrics) => {
                         let elapsed = metrics.timestamp;
 
-                        if self.options.record.is_some() {
-                            todo!()
+                        if let Some(file) = &mut self.record_file {
+                            match serde_json::to_vec(&metrics) {
+                                Err(e) => {
+                                    log::error!("faild to serialize metrics: {e}");
+                                    break;
+                                }
+                                Ok(mut bytes) => {
+                                    bytes.push(b'\n');
+                                    if let Err(e) = file.write_all(&bytes).await {
+                                        log::error!("faild to write metrics: {e}");
+                                        break;
+                                    }
+                                    if let Err(e) = file.flush().await {
+                                        log::error!("faild to write metrics: {e}");
+                                        break;
+                                    }
+                                }
+                            }
                         }
 
                         if self.tx.send(metrics).is_err() {
