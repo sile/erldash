@@ -1,7 +1,6 @@
 use crate::erlang::SystemVersion;
 use crate::metrics::{format_u64, MetricValue, Metrics, MetricsPoller};
 use crossterm::event::{KeyCode, KeyEvent};
-use ordered_float::OrderedFloat;
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
@@ -384,16 +383,14 @@ impl UiState {
 
         let lower_bound = data
             .iter()
-            .map(|(_, y)| OrderedFloat(*y))
-            .min()
-            .map(|y| y.0)
+            .map(|(_, y)| *y)
+            .min_by(|a, b| a.total_cmp(b))
             .expect("unreachable")
             .floor();
         let mut upper_bound = data
             .iter()
-            .map(|(_, y)| OrderedFloat(*y))
-            .max()
-            .map(|y| y.0)
+            .map(|(_, y)| *y)
+            .max_by(|a, b| a.total_cmp(b))
             .expect("unreachable")
             .ceil();
         let is_constant = lower_bound == upper_bound;
