@@ -383,13 +383,13 @@ impl UiState {
 
         let lower_bound = data
             .iter()
-            .min_by(|a, b| a.0.total_cmp(&b.0))
+            .min_by(|a, b| a.1.total_cmp(&b.1))
             .map(|y| y.0)
             .expect("unreachable")
             .floor();
         let mut upper_bound = data
             .iter()
-            .max_by(|a, b| a.0.total_cmp(&b.0))
+            .max_by(|a, b| a.1.total_cmp(&b.1))
             .map(|y| y.0)
             .expect("unreachable")
             .ceil();
