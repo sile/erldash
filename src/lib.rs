@@ -20,8 +20,12 @@ pub struct Options {
     pub cookie: Option<String>,
 
     /// If specified, the collected metrics will be recorded to the given file and can be replayed later.
-    #[clap(long)]
+    #[clap(long, value_name = "FILE")]
     pub record: Option<PathBuf>,
+
+    /// If specified, the recorded metrics will be replayed.
+    #[clap(long, requires = "record")]
+    pub replay: bool,
 }
 
 impl Options {

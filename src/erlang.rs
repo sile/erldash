@@ -1,8 +1,9 @@
 use erl_dist::node::NodeName;
 use erl_dist::term::{Atom, List, Map, Term, Tuple};
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SystemVersion(String);
 
 impl SystemVersion {

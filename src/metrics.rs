@@ -269,6 +269,7 @@ struct MetricsPollerThread {
     tx: MetricsSender,
     prev_metrics: Metrics,
     start: Instant,
+    system_version: SystemVersion,
     record_file: Option<File>,
 }
 
@@ -290,7 +291,7 @@ impl MetricsPollerThread {
 
         let poller = MetricsPoller {
             rx,
-            system_version,
+            system_version: system_version.clone(),
             rpc_client: rpc_client.clone(),
             old_microstate_accounting_flag,
         };
@@ -311,6 +312,7 @@ impl MetricsPollerThread {
                 tx,
                 prev_metrics: Metrics::new(start),
                 start,
+                system_version,
                 record_file,
             }
             .run()
@@ -318,10 +320,25 @@ impl MetricsPollerThread {
         Ok(poller)
     }
 
+    async fn write_json_line(&mut self, value: &impl serde::Serialize) -> anyhow::Result<()> {
+        if let Some(file) = &mut self.record_file {
+            let mut bytes = serde_json::to_vec(value)?;
+            bytes.push(b'\n');
+            file.write_all(&bytes).await?;
+            file.flush().await?;
+        }
+        Ok(())
+    }
+
     fn run(mut self) {
         let interval = Duration::from_secs(self.options.polling_interval.get() as u64);
         let mut next_time = Duration::from_secs(0);
         smol::block_on(async {
+            if let Err(e) = self.write_json_line(&self.system_version.clone()).await {
+                log::error!("faild to write record file: {e}");
+                return;
+            }
+
             loop {
                 match self.poll_once().await {
                     Err(e) => {
@@ -331,24 +348,9 @@ impl MetricsPollerThread {
                     Ok(metrics) => {
                         let elapsed = metrics.timestamp;
 
-                        if let Some(file) = &mut self.record_file {
-                            match serde_json::to_vec(&metrics) {
-                                Err(e) => {
-                                    log::error!("faild to serialize metrics: {e}");
-                                    break;
-                                }
-                                Ok(mut bytes) => {
-                                    bytes.push(b'\n');
-                                    if let Err(e) = file.write_all(&bytes).await {
-                                        log::error!("faild to write metrics: {e}");
-                                        break;
-                                    }
-                                    if let Err(e) = file.flush().await {
-                                        log::error!("faild to write metrics: {e}");
-                                        break;
-                                    }
-                                }
-                            }
+                        if let Err(e) = self.write_json_line(&metrics).await {
+                            log::error!("faild to write record file: {e}");
+                            break;
                         }
 
                         if self.tx.send(metrics).is_err() {
