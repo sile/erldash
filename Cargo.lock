@@ -391,7 +391,7 @@ dependencies = [
  "byteorder",
  "libflate",
  "num",
- "ordered-float 2.10.1",
+ "ordered-float",
  "thiserror",
 ]
 
@@ -435,7 +435,6 @@ dependencies = [
  "erl_rpc",
  "futures",
  "log",
- "ordered-float 3.9.2",
  "simplelog",
  "smol",
  "tui",
@@ -810,15 +809,6 @@ name = "ordered-float"
 version = "2.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "68f19d67e5a2795c94e73e0bb1cc1a7edeb2e28efd39e2e1c9b7a40c1108b11c"
-dependencies = [
- "num-traits",
-]
-
-[[package]]
-name = "ordered-float"
-version = "3.9.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f1e1c390732d15f1d48471625cd92d154e66db2c56645e29a9cd26f4699f72dc"
 dependencies = [
  "num-traits",
 ]
