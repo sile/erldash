@@ -23,6 +23,7 @@ pub struct App {
     terminal: Terminal,
     poller: MetricsPoller,
     ui: UiState,
+    metrics_seqno: usize,
 }
 
 impl App {
@@ -30,11 +31,12 @@ impl App {
         let terminal = Self::setup_terminal()?;
         log::debug!("setup terminal");
 
-        let system_version = poller.system_version.clone();
+        let system_version = poller.system_version().clone();
         Ok(Self {
             terminal,
             poller,
             ui: UiState::new(system_version),
+            metrics_seqno: 0,
         })
     }
 
@@ -53,7 +55,7 @@ impl App {
     }
 
     fn handle_poll(&mut self) -> anyhow::Result<()> {
-        match self.poller.rx.recv_timeout(POLL_TIMEOUT) {
+        match self.poller.poll_metrics(self.metrics_seqno, POLL_TIMEOUT) {
             Err(mpsc::RecvTimeoutError::Disconnected) => {
                 anyhow::bail!("Erlang metrics polling thread terminated unexpectedly");
             }
@@ -89,6 +91,7 @@ impl App {
                     log::debug!("remove old metrics");
                 }
                 self.render_ui()?;
+                self.metrics_seqno += 1;
             }
         }
         Ok(())

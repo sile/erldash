@@ -234,20 +234,50 @@ pub fn format_u64(mut n: u64, suffix: &str) -> String {
 }
 
 #[derive(Debug)]
-pub struct MetricsPoller {
-    pub rx: MetricsReceiver,
-    pub system_version: SystemVersion,
-    rpc_client: RpcClient,
-    old_microstate_accounting_flag: bool,
+pub enum MetricsPoller {
+    Realtime(RealtimeMetricsPoller),
+    Replay,
 }
 
 impl MetricsPoller {
     pub fn start_thread(options: Options) -> anyhow::Result<Self> {
+        RealtimeMetricsPoller::start_thread(options).map(Self::Realtime)
+    }
+
+    pub fn system_version(&self) -> &SystemVersion {
+        match self {
+            Self::Realtime(poller) => &poller.system_version,
+            Self::Replay => todo!(),
+        }
+    }
+
+    pub fn poll_metrics(
+        &self,
+        _seqno: usize,
+        timeout: Duration,
+    ) -> Result<Metrics, mpsc::RecvTimeoutError> {
+        match self {
+            Self::Realtime(poller) => poller.rx.recv_timeout(timeout),
+            Self::Replay => todo!(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct RealtimeMetricsPoller {
+    rx: MetricsReceiver,
+    system_version: SystemVersion,
+    rpc_client: RpcClient,
+    old_microstate_accounting_flag: bool,
+}
+
+impl RealtimeMetricsPoller {
+    fn start_thread(options: Options) -> anyhow::Result<Self> {
         MetricsPollerThread::start_thread(options)
     }
 }
 
-impl Drop for MetricsPoller {
+impl Drop for RealtimeMetricsPoller {
     fn drop(&mut self) {
         if !self.old_microstate_accounting_flag {
             if let Err(e) = smol::block_on(
@@ -274,7 +304,7 @@ struct MetricsPollerThread {
 }
 
 impl MetricsPollerThread {
-    fn start_thread(options: Options) -> anyhow::Result<MetricsPoller> {
+    fn start_thread(options: Options) -> anyhow::Result<RealtimeMetricsPoller> {
         let (tx, rx) = mpsc::channel();
 
         let rpc_client: RpcClient = smol::block_on(async {
@@ -289,7 +319,7 @@ impl MetricsPollerThread {
             "enabled microstate accounting (old flag state is {old_microstate_accounting_flag})"
         );
 
-        let poller = MetricsPoller {
+        let poller = RealtimeMetricsPoller {
             rx,
             system_version: system_version.clone(),
             rpc_client: rpc_client.clone(),
