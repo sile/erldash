@@ -42,7 +42,7 @@ impl App {
     }
 
     pub fn run(mut self) -> anyhow::Result<()> {
-        self.render_replay_ui()?;
+        self.render_replay_ui_if_need()?;
         loop {
             if self.handle_event()? {
                 break;
@@ -127,14 +127,14 @@ impl App {
                 self.replay_cursor_time = self
                     .replay_cursor_time
                     .saturating_sub(Duration::from_secs(1));
-                self.render_replay_ui()?;
+                self.render_replay_ui_if_need()?;
             }
             KeyCode::Char('l') => {
                 if (self.replay_cursor_time + Duration::from_secs(1))
                     < self.poller.replay_last_time()
                 {
                     self.replay_cursor_time = self.replay_cursor_time + Duration::from_secs(1);
-                    self.render_replay_ui()?;
+                    self.render_replay_ui_if_need()?;
                 }
             }
             KeyCode::Left => {
@@ -178,7 +178,11 @@ impl App {
         Ok(())
     }
 
-    fn render_replay_ui(&mut self) -> anyhow::Result<()> {
+    fn render_replay_ui_if_need(&mut self) -> anyhow::Result<()> {
+        if !self.ui.replay_mode {
+            return Ok(());
+        }
+
         let time = self.replay_cursor_time;
 
         self.ui.history.clear();
