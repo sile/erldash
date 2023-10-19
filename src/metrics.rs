@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use smol::fs::File;
 use smol::io::AsyncWriteExt;
 use std::collections::BTreeMap;
+use std::io::BufRead;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
@@ -236,30 +237,76 @@ pub fn format_u64(mut n: u64, suffix: &str) -> String {
 #[derive(Debug)]
 pub enum MetricsPoller {
     Realtime(RealtimeMetricsPoller),
-    Replay,
+    Replay(ReplayMetricsPoller),
 }
 
 impl MetricsPoller {
     pub fn start_thread(options: Options) -> anyhow::Result<Self> {
-        RealtimeMetricsPoller::start_thread(options).map(Self::Realtime)
+        if options.replay {
+            ReplayMetricsPoller::new(options).map(Self::Replay)
+        } else {
+            RealtimeMetricsPoller::start_thread(options).map(Self::Realtime)
+        }
     }
 
     pub fn system_version(&self) -> &SystemVersion {
         match self {
             Self::Realtime(poller) => &poller.system_version,
-            Self::Replay => todo!(),
+            Self::Replay(poller) => &poller.system_version,
         }
     }
 
     pub fn poll_metrics(
         &self,
-        _seqno: usize,
+        seqno: usize,
         timeout: Duration,
     ) -> Result<Metrics, mpsc::RecvTimeoutError> {
         match self {
             Self::Realtime(poller) => poller.rx.recv_timeout(timeout),
-            Self::Replay => todo!(),
+            Self::Replay(poller) => {
+                Ok(poller.metrics_log[seqno.min(poller.metrics_log.len() - 1)].clone())
+            }
         }
+    }
+}
+
+#[derive(Debug)]
+pub struct ReplayMetricsPoller {
+    system_version: SystemVersion,
+    metrics_log: Vec<Metrics>,
+}
+
+impl ReplayMetricsPoller {
+    fn new(options: Options) -> anyhow::Result<Self> {
+        let Some(record_file_path) = options.record else {
+            anyhow::bail!("`--record` is required for replay mode");
+        };
+        let file = std::fs::File::open(&record_file_path).with_context(|| {
+            format!("failed to open record file: {}", record_file_path.display())
+        })?;
+        let reader = std::io::BufReader::new(file);
+
+        let mut system_version = None;
+        let mut metrics_log = Vec::new();
+        for (i, line) in reader.lines().enumerate() {
+            let line = line?;
+            if i == 0 {
+                system_version = Some(
+                    serde_json::from_str(&line)
+                        .with_context(|| format!("failed to parse record file: line={}", i + 1))?,
+                );
+                continue;
+            }
+            let metrics = serde_json::from_str(&line)
+                .with_context(|| format!("failed to parse record file: line={}", i + 1))?;
+            metrics_log.push(metrics);
+        }
+        let system_version =
+            system_version.ok_or_else(|| anyhow::anyhow!("record file is empty"))?;
+        Ok(Self {
+            system_version,
+            metrics_log,
+        })
     }
 }
 
