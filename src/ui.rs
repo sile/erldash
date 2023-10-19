@@ -23,7 +23,7 @@ pub struct App {
     terminal: Terminal,
     poller: MetricsPoller,
     ui: UiState,
-    metrics_seqno: usize,
+    replay_cursor_time: Duration,
 }
 
 impl App {
@@ -31,21 +31,23 @@ impl App {
         let terminal = Self::setup_terminal()?;
         log::debug!("setup terminal");
 
+        let replay_mode = poller.is_replay();
         let system_version = poller.system_version().clone();
         Ok(Self {
             terminal,
             poller,
-            ui: UiState::new(system_version),
-            metrics_seqno: 0,
+            ui: UiState::new(system_version, replay_mode),
+            replay_cursor_time: Duration::default(),
         })
     }
 
     pub fn run(mut self) -> anyhow::Result<()> {
+        self.render_replay_ui()?;
         loop {
             if self.handle_event()? {
                 break;
             }
-            if self.ui.pause {
+            if self.ui.pause || self.ui.replay_mode {
                 std::thread::sleep(POLL_TIMEOUT);
             } else {
                 self.handle_poll()?;
@@ -55,7 +57,7 @@ impl App {
     }
 
     fn handle_poll(&mut self) -> anyhow::Result<()> {
-        match self.poller.poll_metrics(self.metrics_seqno, POLL_TIMEOUT) {
+        match self.poller.poll_metrics(POLL_TIMEOUT) {
             Err(mpsc::RecvTimeoutError::Disconnected) => {
                 anyhow::bail!("Erlang metrics polling thread terminated unexpectedly");
             }
@@ -91,7 +93,6 @@ impl App {
                     log::debug!("remove old metrics");
                 }
                 self.render_ui()?;
-                self.metrics_seqno += 1;
             }
         }
         Ok(())
@@ -121,6 +122,20 @@ impl App {
             }
             KeyCode::Char('p') => {
                 self.ui.pause = !self.ui.pause;
+            }
+            KeyCode::Char('h') => {
+                self.replay_cursor_time = self
+                    .replay_cursor_time
+                    .saturating_sub(Duration::from_secs(1));
+                self.render_replay_ui()?;
+            }
+            KeyCode::Char('l') => {
+                if (self.replay_cursor_time + Duration::from_secs(1))
+                    < self.poller.replay_last_time()
+                {
+                    self.replay_cursor_time = self.replay_cursor_time + Duration::from_secs(1);
+                    self.render_replay_ui()?;
+                }
             }
             KeyCode::Left => {
                 self.ui.focus = Focus::Main;
@@ -160,6 +175,37 @@ impl App {
         if !self.ui.history.is_empty() {
             self.terminal.draw(|f| self.ui.render(f))?;
         }
+        Ok(())
+    }
+
+    fn render_replay_ui(&mut self) -> anyhow::Result<()> {
+        let time = self.replay_cursor_time;
+
+        self.ui.history.clear();
+        for metrics in self
+            .poller
+            .get_metrics_range(time, time + Duration::from_secs(CHART_DURATION))?
+        {
+            self.ui.history.push_back(metrics.clone());
+        }
+
+        self.ui.averages.clear();
+        for metrics in self.poller.get_metrics_range(
+            time.saturating_sub(Duration::from_secs(CHART_DURATION)),
+            time,
+        )? {
+            for (name, item) in &metrics.items {
+                if let Some(avg) = self.ui.averages.get_mut(name) {
+                    avg.add(item.clone());
+                } else {
+                    self.ui
+                        .averages
+                        .insert(name.clone(), AvgValue::new(item.clone()));
+                }
+            }
+        }
+
+        self.render_ui()?;
         Ok(())
     }
 
@@ -203,10 +249,11 @@ struct UiState {
     focus: Focus,
     metrics_table_state: TableState,
     detail_table_state: TableState,
+    replay_mode: bool,
 }
 
 impl UiState {
-    fn new(system_version: SystemVersion) -> Self {
+    fn new(system_version: SystemVersion, replay_mode: bool) -> Self {
         Self {
             start: Instant::now(),
             system_version,
@@ -216,6 +263,7 @@ impl UiState {
             focus: Focus::Main,
             metrics_table_state: TableState::default(),
             detail_table_state: TableState::default(),
+            replay_mode,
         }
     }
 
@@ -256,7 +304,9 @@ impl UiState {
     }
 
     fn render_metrics(&mut self, f: &mut Frame, area: Rect) {
-        let block = if self.pause {
+        let block = if self.replay_mode {
+            self.make_block("Metrics (REPLAY)")
+        } else if self.pause {
             self.make_block("Metrics (PAUSED)")
         } else {
             self.make_block("Metrics")
@@ -331,11 +381,19 @@ impl UiState {
     }
 
     fn render_help(&mut self, f: &mut Frame, area: Rect) {
-        let paragraph = Paragraph::new(vec![
-            Spans::from("Quit:           'q' key"),
-            Spans::from("Pause / Resume: 'p' key"),
-            Spans::from("Move:           UP / DOWN / LEFT / RIGHT keys"),
-        ])
+        let paragraph = if self.replay_mode {
+            Paragraph::new(vec![
+                Spans::from("Quit:           'q' key"),
+                Spans::from("Prev / Next:    'h' / 'l' keys"),
+                Spans::from("Move:           UP / DOWN / LEFT / RIGHT keys"),
+            ])
+        } else {
+            Paragraph::new(vec![
+                Spans::from("Quit:           'q' key"),
+                Spans::from("Pause / Resume: 'p' key"),
+                Spans::from("Move:           UP / DOWN / LEFT / RIGHT keys"),
+            ])
+        }
         .block(self.make_block("Help"))
         .alignment(Alignment::Left);
         f.render_widget(paragraph, area);

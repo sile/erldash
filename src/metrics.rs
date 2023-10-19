@@ -249,6 +249,10 @@ impl MetricsPoller {
         }
     }
 
+    pub fn is_replay(&self) -> bool {
+        matches!(self, Self::Replay(_))
+    }
+
     pub fn system_version(&self) -> &SystemVersion {
         match self {
             Self::Realtime(poller) => &poller.system_version,
@@ -256,17 +260,38 @@ impl MetricsPoller {
         }
     }
 
-    pub fn poll_metrics(
-        &self,
-        seqno: usize,
-        timeout: Duration,
-    ) -> Result<Metrics, mpsc::RecvTimeoutError> {
+    pub fn poll_metrics(&self, timeout: Duration) -> Result<Metrics, mpsc::RecvTimeoutError> {
         match self {
             Self::Realtime(poller) => poller.rx.recv_timeout(timeout),
-            Self::Replay(poller) => {
-                Ok(poller.metrics_log[seqno.min(poller.metrics_log.len() - 1)].clone())
+            Self::Replay(_) => {
+                unreachable!()
             }
         }
+    }
+
+    pub fn replay_last_time(&self) -> Duration {
+        match self {
+            Self::Realtime(_) => Duration::from_secs(0),
+            Self::Replay(poller) => poller
+                .metrics_log
+                .last()
+                .map(|m| m.timestamp)
+                .unwrap_or_default(),
+        }
+    }
+
+    pub fn get_metrics_range(
+        &self,
+        start_time: Duration,
+        end_time: Duration,
+    ) -> anyhow::Result<impl '_ + Iterator<Item = &Metrics>> {
+        let Self::Replay(poller) = self else {
+            anyhow::bail!("`get_metrics_range()` is only available in replay mode");
+        };
+        Ok(poller.metrics_log.iter().filter(move |metrics| {
+            let time = metrics.timestamp;
+            start_time <= time && time <= end_time
+        }))
     }
 }
 
