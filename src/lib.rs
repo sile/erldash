@@ -1,4 +1,5 @@
 //! A simple, terminal-based Erlang dashboard.
+use std::path::PathBuf;
 pub mod erlang;
 pub mod metrics;
 pub mod ui;
@@ -17,6 +18,14 @@ pub struct Options {
     /// By default, the content of the `$HOME/.erlang.cookie` file is used.
     #[clap(long, short = 'c')]
     pub cookie: Option<String>,
+
+    /// If specified, the collected metrics will be recorded to the given file and can be replayed later.
+    #[clap(long, value_name = "FILE")]
+    pub record: Option<PathBuf>,
+
+    /// If specified, the recorded metrics will be replayed.
+    #[clap(long, requires = "record")]
+    pub replay: bool,
 }
 
 impl Options {
