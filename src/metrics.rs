@@ -399,7 +399,7 @@ impl MetricsPollerThread {
         };
 
         let record_file = if let Some(path) = &options.record {
-            Some(File::from(std::fs::File::create(&path).with_context(
+            Some(File::from(std::fs::File::create(path).with_context(
                 || format!("failed to record file {}", path.display()),
             )?))
         } else {

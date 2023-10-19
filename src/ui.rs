@@ -133,7 +133,7 @@ impl App {
                 if (self.replay_cursor_time + Duration::from_secs(1))
                     < self.poller.replay_last_time()
                 {
-                    self.replay_cursor_time = self.replay_cursor_time + Duration::from_secs(1);
+                    self.replay_cursor_time += Duration::from_secs(1);
                     self.render_replay_ui_if_need()?;
                 }
             }
