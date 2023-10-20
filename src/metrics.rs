@@ -253,7 +253,7 @@ impl MetricsPoller {
         matches!(self, Self::Replay(_))
     }
 
-    pub fn header(&self) -> &HeaderV1 {
+    pub fn header(&self) -> &Header {
         match self {
             Self::Realtime(poller) => &poller.header,
             Self::Replay(poller) => &poller.header,
@@ -296,33 +296,14 @@ impl MetricsPoller {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HeaderV1 {
+pub struct Header {
     pub system_version: SystemVersion,
     pub start_time: chrono::DateTime<chrono::Local>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(untagged)]
-enum Header {
-    V1(HeaderV1),
-    V0(SystemVersion),
-}
-
-impl Header {
-    fn into_v1(self) -> HeaderV1 {
-        match self {
-            Self::V1(header) => header,
-            Self::V0(system_version) => HeaderV1 {
-                system_version,
-                start_time: chrono::Local::now(),
-            },
-        }
-    }
-}
-
 #[derive(Debug)]
 pub struct ReplayMetricsPoller {
-    header: HeaderV1,
+    header: Header,
     metrics_log: Vec<Metrics>,
 }
 
@@ -351,9 +332,9 @@ impl ReplayMetricsPoller {
                 .with_context(|| format!("failed to parse record file: line={}", i + 1))?;
             metrics_log.push(metrics);
         }
-        let header: Header = header.ok_or_else(|| anyhow::anyhow!("record file is empty"))?;
+        let header = header.ok_or_else(|| anyhow::anyhow!("record file is empty"))?;
         Ok(Self {
-            header: header.into_v1(),
+            header,
             metrics_log,
         })
     }
@@ -362,7 +343,7 @@ impl ReplayMetricsPoller {
 #[derive(Debug)]
 pub struct RealtimeMetricsPoller {
     rx: MetricsReceiver,
-    header: HeaderV1,
+    header: Header,
     rpc_client: RpcClient,
     old_microstate_accounting_flag: bool,
 }
@@ -395,7 +376,7 @@ struct MetricsPollerThread {
     tx: MetricsSender,
     prev_metrics: Metrics,
     start: Instant,
-    header: HeaderV1,
+    header: Header,
     record_file: Option<File>,
 }
 
@@ -415,7 +396,7 @@ impl MetricsPollerThread {
             "enabled microstate accounting (old flag state is {old_microstate_accounting_flag})"
         );
 
-        let header = HeaderV1 {
+        let header = Header {
             system_version: system_version.clone(),
             start_time: chrono::Local::now(),
         };
