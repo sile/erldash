@@ -32,11 +32,12 @@ impl App {
         log::debug!("setup terminal");
 
         let replay_mode = poller.is_replay();
-        let system_version = poller.system_version().clone();
+        let system_version = poller.header().system_version.clone();
+        let start_time = poller.header().start_time;
         Ok(Self {
             terminal,
             poller,
-            ui: UiState::new(system_version, replay_mode),
+            ui: UiState::new(system_version, start_time, replay_mode),
             replay_cursor_time: Duration::default(),
         })
     }
@@ -92,6 +93,7 @@ impl App {
                     }
                     log::debug!("remove old metrics");
                 }
+                self.ui.elapsed = self.ui.start.elapsed();
                 self.render_ui()?;
             }
         }
@@ -186,18 +188,13 @@ impl App {
         let time = self.replay_cursor_time;
 
         self.ui.history.clear();
+        self.ui.averages.clear();
         for metrics in self
             .poller
             .get_metrics_range(time, time + Duration::from_secs(CHART_DURATION))?
         {
             self.ui.history.push_back(metrics.clone());
-        }
 
-        self.ui.averages.clear();
-        for metrics in self.poller.get_metrics_range(
-            time.saturating_sub(Duration::from_secs(CHART_DURATION)),
-            time,
-        )? {
             for (name, item) in &metrics.items {
                 if let Some(avg) = self.ui.averages.get_mut(name) {
                     avg.add(item.clone());
@@ -208,6 +205,13 @@ impl App {
                 }
             }
         }
+
+        self.ui.elapsed = self
+            .ui
+            .history
+            .back()
+            .map(|x| x.timestamp)
+            .unwrap_or_default();
 
         self.render_ui()?;
         Ok(())
@@ -247,6 +251,8 @@ impl Drop for App {
 struct UiState {
     start: Instant,
     system_version: SystemVersion,
+    start_time: chrono::DateTime<chrono::Local>,
+    elapsed: Duration,
     pause: bool,
     history: VecDeque<Metrics>,
     averages: BTreeMap<String, AvgValue>,
@@ -257,10 +263,16 @@ struct UiState {
 }
 
 impl UiState {
-    fn new(system_version: SystemVersion, replay_mode: bool) -> Self {
+    fn new(
+        system_version: SystemVersion,
+        start_time: chrono::DateTime<chrono::Local>,
+        replay_mode: bool,
+    ) -> Self {
         Self {
             start: Instant::now(),
             system_version,
+            start_time,
+            elapsed: Duration::default(),
             pause: false,
             history: VecDeque::new(),
             averages: BTreeMap::new(),
@@ -282,10 +294,23 @@ impl UiState {
     }
 
     fn render_header(&mut self, f: &mut Frame, area: Rect) {
+        let chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(75), Constraint::Percentage(25)].as_ref())
+            .split(area);
+
         let paragraph = Paragraph::new(vec![Spans::from(self.system_version.get())])
             .block(self.make_block("System Version"))
             .alignment(Alignment::Left);
-        f.render_widget(paragraph, area);
+        f.render_widget(paragraph, chunks[0]);
+
+        let now = self.start_time + self.elapsed;
+        let paragraph = Paragraph::new(vec![Spans::from(
+            now.to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+        )])
+        .block(self.make_block("Time"))
+        .alignment(Alignment::Left);
+        f.render_widget(paragraph, chunks[1]);
     }
 
     fn render_body(&mut self, f: &mut Frame, area: Rect) {
@@ -322,7 +347,7 @@ impl UiState {
         let header = Row::new(header_cells).bottom_margin(1);
 
         let items = self.latest_metrics().root_items().collect::<Vec<_>>();
-        let is_avg_available = self.start.elapsed().as_secs() >= ONE_MINUTE;
+        let is_avg_available = self.elapsed.as_secs() >= (ONE_MINUTE - 1);
         let mut value_width = 0;
         let mut avg_width = 0;
         let mut row_items = Vec::with_capacity(items.len());
