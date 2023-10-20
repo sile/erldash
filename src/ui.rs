@@ -188,18 +188,13 @@ impl App {
         let time = self.replay_cursor_time;
 
         self.ui.history.clear();
+        self.ui.averages.clear();
         for metrics in self
             .poller
             .get_metrics_range(time, time + Duration::from_secs(CHART_DURATION))?
         {
             self.ui.history.push_back(metrics.clone());
-        }
 
-        self.ui.averages.clear();
-        for metrics in self.poller.get_metrics_range(
-            time.saturating_sub(Duration::from_secs(CHART_DURATION)),
-            time,
-        )? {
             for (name, item) in &metrics.items {
                 if let Some(avg) = self.ui.averages.get_mut(name) {
                     avg.add(item.clone());
@@ -210,6 +205,7 @@ impl App {
                 }
             }
         }
+
         self.ui.elapsed = self
             .ui
             .history
@@ -351,7 +347,7 @@ impl UiState {
         let header = Row::new(header_cells).bottom_margin(1);
 
         let items = self.latest_metrics().root_items().collect::<Vec<_>>();
-        let is_avg_available = self.start.elapsed().as_secs() >= ONE_MINUTE;
+        let is_avg_available = self.elapsed.as_secs() >= (ONE_MINUTE - 1);
         let mut value_width = 0;
         let mut avg_width = 0;
         let mut row_items = Vec::with_capacity(items.len());
