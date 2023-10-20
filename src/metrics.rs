@@ -253,10 +253,10 @@ impl MetricsPoller {
         matches!(self, Self::Replay(_))
     }
 
-    pub fn system_version(&self) -> &SystemVersion {
+    pub fn header(&self) -> &HeaderV1 {
         match self {
-            Self::Realtime(poller) => &poller.system_version,
-            Self::Replay(poller) => &poller.system_version,
+            Self::Realtime(poller) => &poller.header,
+            Self::Replay(poller) => &poller.header,
         }
     }
 
@@ -295,9 +295,34 @@ impl MetricsPoller {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HeaderV1 {
+    pub system_version: SystemVersion,
+    pub start_time: chrono::DateTime<chrono::Local>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(untagged)]
+enum Header {
+    V1(HeaderV1),
+    V0(SystemVersion),
+}
+
+impl Header {
+    fn into_v1(self) -> HeaderV1 {
+        match self {
+            Self::V1(header) => header,
+            Self::V0(system_version) => HeaderV1 {
+                system_version,
+                start_time: chrono::Local::now(),
+            },
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct ReplayMetricsPoller {
-    system_version: SystemVersion,
+    header: HeaderV1,
     metrics_log: Vec<Metrics>,
 }
 
@@ -311,12 +336,12 @@ impl ReplayMetricsPoller {
         })?;
         let reader = std::io::BufReader::new(file);
 
-        let mut system_version = None;
+        let mut header = None;
         let mut metrics_log = Vec::new();
         for (i, line) in reader.lines().enumerate() {
             let line = line?;
             if i == 0 {
-                system_version = Some(
+                header = Some(
                     serde_json::from_str(&line)
                         .with_context(|| format!("failed to parse record file: line={}", i + 1))?,
                 );
@@ -326,10 +351,9 @@ impl ReplayMetricsPoller {
                 .with_context(|| format!("failed to parse record file: line={}", i + 1))?;
             metrics_log.push(metrics);
         }
-        let system_version =
-            system_version.ok_or_else(|| anyhow::anyhow!("record file is empty"))?;
+        let header: Header = header.ok_or_else(|| anyhow::anyhow!("record file is empty"))?;
         Ok(Self {
-            system_version,
+            header: header.into_v1(),
             metrics_log,
         })
     }
@@ -338,7 +362,7 @@ impl ReplayMetricsPoller {
 #[derive(Debug)]
 pub struct RealtimeMetricsPoller {
     rx: MetricsReceiver,
-    system_version: SystemVersion,
+    header: HeaderV1,
     rpc_client: RpcClient,
     old_microstate_accounting_flag: bool,
 }
@@ -371,7 +395,7 @@ struct MetricsPollerThread {
     tx: MetricsSender,
     prev_metrics: Metrics,
     start: Instant,
-    system_version: SystemVersion,
+    header: HeaderV1,
     record_file: Option<File>,
 }
 
@@ -391,9 +415,13 @@ impl MetricsPollerThread {
             "enabled microstate accounting (old flag state is {old_microstate_accounting_flag})"
         );
 
+        let header = HeaderV1 {
+            system_version: system_version.clone(),
+            start_time: chrono::Local::now(),
+        };
         let poller = RealtimeMetricsPoller {
             rx,
-            system_version: system_version.clone(),
+            header: header.clone(),
             rpc_client: rpc_client.clone(),
             old_microstate_accounting_flag,
         };
@@ -414,7 +442,7 @@ impl MetricsPollerThread {
                 tx,
                 prev_metrics: Metrics::new(start),
                 start,
-                system_version,
+                header,
                 record_file,
             }
             .run()
@@ -436,7 +464,7 @@ impl MetricsPollerThread {
         let interval = Duration::from_secs(self.options.polling_interval.get() as u64);
         let mut next_time = Duration::from_secs(0);
         smol::block_on(async {
-            if let Err(e) = self.write_json_line(&self.system_version.clone()).await {
+            if let Err(e) = self.write_json_line(&self.header.clone()).await {
                 log::error!("faild to write record file: {e}");
                 return;
             }
