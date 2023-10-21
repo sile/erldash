@@ -4,8 +4,17 @@ pub mod erlang;
 pub mod metrics;
 pub mod ui;
 
-#[derive(Debug, Clone, clap::Parser)]
-pub struct Options {
+#[derive(Debug, Clone, clap::Subcommand)]
+pub enum Command {
+    /// Run the dashboard.
+    Run(RunArgs),
+
+    /// Replay a previously recorded dashboard session.
+    Replay(ReplayArgs),
+}
+
+#[derive(Debug, Clone, clap::Args)]
+pub struct RunArgs {
     /// Target Erlang node name.
     pub erlang_node: erl_dist::node::NodeName,
 
@@ -22,13 +31,9 @@ pub struct Options {
     /// If specified, the collected metrics will be recorded to the given file and can be replayed later.
     #[clap(long, value_name = "FILE")]
     pub record: Option<PathBuf>,
-
-    /// If specified, the recorded metrics will be replayed.
-    #[clap(long, requires = "record")]
-    pub replay: bool,
 }
 
-impl Options {
+impl RunArgs {
     pub fn find_cookie(&self) -> anyhow::Result<String> {
         if let Some(cookie) = &self.cookie {
             Ok(cookie.clone())
@@ -36,4 +41,10 @@ impl Options {
             erlang::find_cookie()
         }
     }
+}
+
+#[derive(Debug, Clone, clap::Args)]
+pub struct ReplayArgs {
+    /// Path to a file containing recorded metrics.
+    pub file: PathBuf,
 }

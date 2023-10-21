@@ -54,9 +54,11 @@ Usage
 Just execute the following command:
 
 ```console
-$ erldash $TARGET_ERLANG_NODE
+$ erldash run $TARGET_ERLANG_NODE
 ```
 
 If you need to specify a cookie value other than `$HOME/.erlang.cookie`, please specify that to `--cookie` option.
 
 `$ erldash --help` shows the detailed help message.
+
+You can record the collected metrics to a file via `--record <FILE>` option and replay the recorded run using `$ erldash replay <FILE>` command.

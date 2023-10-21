@@ -6,8 +6,8 @@ use erldash::{metrics, ui};
 #[derive(Debug, Parser)]
 #[clap(version)]
 struct Args {
-    #[clap(flatten)]
-    options: erldash::Options,
+    #[clap(subcommand)]
+    command: erldash::Command,
 
     #[clap(hide = true, long)]
     logfile: Option<std::path::PathBuf>,
@@ -23,7 +23,7 @@ fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     setup_logger(&args)?;
 
-    let poller = metrics::MetricsPoller::start_thread(args.options)?;
+    let poller = metrics::MetricsPoller::start_thread(args.command)?;
     let app = ui::App::new(poller)?;
     app.run()?;
     Ok(())

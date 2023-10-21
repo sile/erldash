@@ -1,5 +1,5 @@
 use crate::erlang::{MSAccThread, RpcClient, SystemVersion};
-use crate::Options;
+use crate::{Command, ReplayArgs, RunArgs};
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use smol::fs::File;
@@ -241,11 +241,10 @@ pub enum MetricsPoller {
 }
 
 impl MetricsPoller {
-    pub fn start_thread(options: Options) -> anyhow::Result<Self> {
-        if options.replay {
-            ReplayMetricsPoller::new(options).map(Self::Replay)
-        } else {
-            RealtimeMetricsPoller::start_thread(options).map(Self::Realtime)
+    pub fn start_thread(command: Command) -> anyhow::Result<Self> {
+        match command {
+            Command::Run(args) => RealtimeMetricsPoller::start_thread(args).map(Self::Realtime),
+            Command::Replay(args) => ReplayMetricsPoller::new(args).map(Self::Replay),
         }
     }
 
@@ -309,10 +308,8 @@ pub struct ReplayMetricsPoller {
 }
 
 impl ReplayMetricsPoller {
-    fn new(options: Options) -> anyhow::Result<Self> {
-        let Some(record_file_path) = options.record else {
-            anyhow::bail!("`--record` is required for replay mode");
-        };
+    fn new(args: ReplayArgs) -> anyhow::Result<Self> {
+        let record_file_path = args.file;
         let file = std::fs::File::open(&record_file_path).with_context(|| {
             format!("failed to open record file: {}", record_file_path.display())
         })?;
@@ -350,8 +347,8 @@ pub struct RealtimeMetricsPoller {
 }
 
 impl RealtimeMetricsPoller {
-    fn start_thread(options: Options) -> anyhow::Result<Self> {
-        MetricsPollerThread::start_thread(options)
+    fn start_thread(args: RunArgs) -> anyhow::Result<Self> {
+        MetricsPollerThread::start_thread(args)
     }
 }
 
@@ -372,7 +369,7 @@ impl Drop for RealtimeMetricsPoller {
 
 #[derive(Debug)]
 struct MetricsPollerThread {
-    options: Options,
+    args: RunArgs,
     rpc_client: RpcClient,
     tx: MetricsSender,
     prev_metrics: Metrics,
@@ -382,12 +379,12 @@ struct MetricsPollerThread {
 }
 
 impl MetricsPollerThread {
-    fn start_thread(options: Options) -> anyhow::Result<RealtimeMetricsPoller> {
+    fn start_thread(args: RunArgs) -> anyhow::Result<RealtimeMetricsPoller> {
         let (tx, rx) = mpsc::channel();
 
         let rpc_client: RpcClient = smol::block_on(async {
-            let cookie = options.find_cookie()?;
-            let client = RpcClient::connect(&options.erlang_node, &cookie).await?;
+            let cookie = args.find_cookie()?;
+            let client = RpcClient::connect(&args.erlang_node, &cookie).await?;
             Ok(client) as anyhow::Result<_>
         })?;
         let system_version = smol::block_on(rpc_client.get_system_version())?;
@@ -399,7 +396,7 @@ impl MetricsPollerThread {
 
         let header = Header {
             system_version: system_version.clone(),
-            node_name: options.erlang_node.to_string(),
+            node_name: args.erlang_node.to_string(),
             start_time: chrono::Local::now(),
         };
         let poller = RealtimeMetricsPoller {
@@ -409,7 +406,7 @@ impl MetricsPollerThread {
             old_microstate_accounting_flag,
         };
 
-        let record_file = if let Some(path) = &options.record {
+        let record_file = if let Some(path) = &args.record {
             Some(File::from(std::fs::File::create(path).with_context(
                 || format!("failed to record file {}", path.display()),
             )?))
@@ -420,7 +417,7 @@ impl MetricsPollerThread {
         std::thread::spawn(|| {
             let start = Instant::now();
             Self {
-                options,
+                args,
                 rpc_client,
                 tx,
                 prev_metrics: Metrics::new(start),
@@ -444,7 +441,7 @@ impl MetricsPollerThread {
     }
 
     fn run(mut self) {
-        let interval = Duration::from_secs(self.options.polling_interval.get() as u64);
+        let interval = Duration::from_secs(self.args.polling_interval.get() as u64);
         let mut next_time = Duration::from_secs(0);
         smol::block_on(async {
             if let Err(e) = self.write_json_line(&self.header.clone()).await {
