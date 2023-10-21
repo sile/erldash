@@ -32,7 +32,7 @@ Pre-built binaries for Linux and MacOS are available in [the releases page](http
 
 ```console
 // An example to download the binary for Linux.
-$ VERSION=...  # Set the target erldash version such as "0.1.2"
+$ VERSION=...  # Set the target erldash version such as "0.2.0"
 $ curl -L https://github.com/sile/erldash/releases/download/${VERSION}/erldash-${VERSION}.x86_64-unknown-linux-musl -o erldash
 $ chmod +x erldash
 $ ./erldash
