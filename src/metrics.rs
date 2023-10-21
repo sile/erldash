@@ -298,6 +298,7 @@ impl MetricsPoller {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Header {
     pub system_version: SystemVersion,
+    pub node_name: String,
     pub start_time: chrono::DateTime<chrono::Local>,
 }
 
@@ -398,6 +399,7 @@ impl MetricsPollerThread {
 
         let header = Header {
             system_version: system_version.clone(),
+            node_name: options.erlang_node.to_string(),
             start_time: chrono::Local::now(),
         };
         let poller = RealtimeMetricsPoller {

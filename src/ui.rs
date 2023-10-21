@@ -1,5 +1,4 @@
-use crate::erlang::SystemVersion;
-use crate::metrics::{format_u64, MetricValue, Metrics, MetricsPoller};
+use crate::metrics::{format_u64, Header, MetricValue, Metrics, MetricsPoller};
 use crossterm::event::{KeyCode, KeyEvent};
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::mpsc;
@@ -32,12 +31,11 @@ impl App {
         log::debug!("setup terminal");
 
         let replay_mode = poller.is_replay();
-        let system_version = poller.header().system_version.clone();
-        let start_time = poller.header().start_time;
+        let header = poller.header().clone();
         Ok(Self {
             terminal,
             poller,
-            ui: UiState::new(system_version, start_time, replay_mode),
+            ui: UiState::new(header, replay_mode),
             replay_cursor_time: Duration::default(),
         })
     }
@@ -250,8 +248,7 @@ impl Drop for App {
 #[derive(Debug)]
 struct UiState {
     start: Instant,
-    system_version: SystemVersion,
-    start_time: chrono::DateTime<chrono::Local>,
+    header: Header,
     elapsed: Duration,
     pause: bool,
     history: VecDeque<Metrics>,
@@ -263,15 +260,10 @@ struct UiState {
 }
 
 impl UiState {
-    fn new(
-        system_version: SystemVersion,
-        start_time: chrono::DateTime<chrono::Local>,
-        replay_mode: bool,
-    ) -> Self {
+    fn new(header: Header, replay_mode: bool) -> Self {
         Self {
             start: Instant::now(),
-            system_version,
-            start_time,
+            header,
             elapsed: Duration::default(),
             pause: false,
             history: VecDeque::new(),
@@ -296,21 +288,33 @@ impl UiState {
     fn render_header(&mut self, f: &mut Frame, area: Rect) {
         let chunks = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(75), Constraint::Percentage(25)].as_ref())
+            .constraints(
+                [
+                    Constraint::Percentage(20),
+                    Constraint::Percentage(60),
+                    Constraint::Percentage(20),
+                ]
+                .as_ref(),
+            )
             .split(area);
 
-        let paragraph = Paragraph::new(vec![Spans::from(self.system_version.get())])
-            .block(self.make_block("System Version"))
+        let paragraph = Paragraph::new(vec![Spans::from(self.header.node_name.clone())])
+            .block(self.make_block("Node"))
             .alignment(Alignment::Left);
         f.render_widget(paragraph, chunks[0]);
 
-        let now = self.start_time + self.elapsed;
+        let paragraph = Paragraph::new(vec![Spans::from(self.header.system_version.get())])
+            .block(self.make_block("System Version"))
+            .alignment(Alignment::Left);
+        f.render_widget(paragraph, chunks[1]);
+
+        let now = self.header.start_time + self.elapsed;
         let paragraph = Paragraph::new(vec![Spans::from(
             now.to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
         )])
         .block(self.make_block("Time"))
         .alignment(Alignment::Left);
-        f.render_widget(paragraph, chunks[1]);
+        f.render_widget(paragraph, chunks[2]);
     }
 
     fn render_body(&mut self, f: &mut Frame, area: Rect) {
