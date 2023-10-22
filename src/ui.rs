@@ -1,18 +1,18 @@
 use crate::metrics::{format_u64, Header, MetricValue, Metrics, MetricsPoller};
 use crossterm::event::{KeyCode, KeyEvent};
+use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
+use ratatui::style::{Modifier, Style};
+use ratatui::symbols::Marker;
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{
+    Axis, Block, Borders, Cell, Chart, Dataset, GraphType, Paragraph, Row, Table, TableState,
+};
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
-use tui::layout::{Alignment, Constraint, Direction, Layout, Rect};
-use tui::style::{Modifier, Style};
-use tui::symbols::Marker;
-use tui::text::{Span, Spans};
-use tui::widgets::{
-    Axis, Block, Borders, Cell, Chart, Dataset, GraphType, Paragraph, Row, Table, TableState,
-};
 
-type Terminal = tui::Terminal<tui::backend::CrosstermBackend<std::io::Stdout>>;
-type Frame<'a> = tui::Frame<'a, tui::backend::CrosstermBackend<std::io::Stdout>>;
+type Terminal = ratatui::Terminal<ratatui::backend::CrosstermBackend<std::io::Stdout>>;
+type Frame<'a> = ratatui::Frame<'a, ratatui::backend::CrosstermBackend<std::io::Stdout>>;
 
 const ONE_MINUTE: u64 = 60;
 const CHART_DURATION: u64 = ONE_MINUTE;
@@ -219,8 +219,8 @@ impl App {
         crossterm::terminal::enable_raw_mode()?;
         let mut stdout = std::io::stdout();
         crossterm::execute!(stdout, crossterm::terminal::EnterAlternateScreen,)?;
-        let backend = tui::backend::CrosstermBackend::new(stdout);
-        let terminal = tui::Terminal::new(backend)?;
+        let backend = ratatui::backend::CrosstermBackend::new(stdout);
+        let terminal = ratatui::Terminal::new(backend)?;
         Ok(terminal)
     }
 
@@ -298,18 +298,18 @@ impl UiState {
             )
             .split(area);
 
-        let paragraph = Paragraph::new(vec![Spans::from(self.header.node_name.clone())])
+        let paragraph = Paragraph::new(vec![Line::from(self.header.node_name.clone())])
             .block(self.make_block("Node"))
             .alignment(Alignment::Left);
         f.render_widget(paragraph, chunks[0]);
 
-        let paragraph = Paragraph::new(vec![Spans::from(self.header.system_version.get())])
+        let paragraph = Paragraph::new(vec![Line::from(self.header.system_version.get())])
             .block(self.make_block("System Version"))
             .alignment(Alignment::Left);
         f.render_widget(paragraph, chunks[1]);
 
         let now = self.header.start_time + self.elapsed;
-        let paragraph = Paragraph::new(vec![Spans::from(
+        let paragraph = Paragraph::new(vec![Line::from(
             now.to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
         )])
         .block(self.make_block("Time"))
@@ -416,15 +416,15 @@ impl UiState {
     fn render_help(&mut self, f: &mut Frame, area: Rect) {
         let paragraph = if self.replay_mode {
             Paragraph::new(vec![
-                Spans::from("Quit:           'q' key"),
-                Spans::from("Prev / Next:    'h' / 'l' keys"),
-                Spans::from("Move:           UP / DOWN / LEFT / RIGHT keys"),
+                Line::from("Quit:           'q' key"),
+                Line::from("Prev / Next:    'h' / 'l' keys"),
+                Line::from("Move:           UP / DOWN / LEFT / RIGHT keys"),
             ])
         } else {
             Paragraph::new(vec![
-                Spans::from("Quit:           'q' key"),
-                Spans::from("Pause / Resume: 'p' key"),
-                Spans::from("Move:           UP / DOWN / LEFT / RIGHT keys"),
+                Line::from("Quit:           'q' key"),
+                Line::from("Pause / Resume: 'p' key"),
+                Line::from("Move:           UP / DOWN / LEFT / RIGHT keys"),
             ])
         }
         .block(self.make_block("Help"))
