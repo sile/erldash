@@ -31,6 +31,12 @@ pub struct RunArgs {
     /// If specified, the collected metrics will be recorded to the given file and can be replayed later.
     #[clap(long, value_name = "FILE")]
     pub record: Option<PathBuf>,
+
+    /// Port number on which the target node listens.
+    ///
+    /// If specified, `erldash` will connect directly to the node without using EPMD.
+    #[clap(long, short)]
+    pub port: Option<u16>,
 }
 
 impl RunArgs {
