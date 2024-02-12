@@ -7,12 +7,12 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{
     Axis, Block, Borders, Cell, Chart, Dataset, GraphType, Paragraph, Row, Table, TableState,
 };
+use ratatui::Frame;
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 type Terminal = ratatui::Terminal<ratatui::backend::CrosstermBackend<std::io::Stdout>>;
-type Frame<'a> = ratatui::Frame<'a, ratatui::backend::CrosstermBackend<std::io::Stdout>>;
 
 const ONE_MINUTE: u64 = 60;
 const CHART_DURATION: u64 = ONE_MINUTE;
@@ -394,12 +394,11 @@ impl UiState {
         );
         self.metrics_table_state.select(Some(selected));
 
-        let table = Table::new(rows)
+        let table = Table::new(rows, widths)
             .header(header)
             .block(block)
             .highlight_style(highlight_style)
-            .highlight_symbol("> ")
-            .widths(&widths);
+            .highlight_symbol("> ");
         f.render_stateful_widget(table, area, &mut self.metrics_table_state);
     }
 
@@ -585,12 +584,11 @@ impl UiState {
         );
         self.detail_table_state.select(Some(selected));
 
-        let table = Table::new(rows)
+        let table = Table::new(rows, widths)
             .header(header)
             .block(block)
             .highlight_style(highlight_style)
-            .highlight_symbol(highlight_symbol)
-            .widths(&widths);
+            .highlight_symbol(highlight_symbol);
         f.render_stateful_widget(table, area, &mut self.detail_table_state);
     }
 
