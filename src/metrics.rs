@@ -384,7 +384,7 @@ impl MetricsPollerThread {
 
         let rpc_client: RpcClient = smol::block_on(async {
             let cookie = args.find_cookie()?;
-            let client = RpcClient::connect(&args.erlang_node, &cookie).await?;
+            let client = RpcClient::connect(&args.erlang_node, args.port, &cookie).await?;
             Ok(client) as anyhow::Result<_>
         })?;
         let system_version = smol::block_on(rpc_client.get_system_version())?;
