@@ -18,7 +18,7 @@ clap = { version = "4", features = ["derive"] }
 crossterm = "0.27"
 dirs = "5"
 erl_dist = "0.6"
-erl_rpc = "0.2"
+erl_rpc = "0.3"
 futures = "0.3"
 log = "0.4"
 ratatui = "0.26.0"

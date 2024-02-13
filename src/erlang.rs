@@ -27,8 +27,16 @@ pub struct RpcClient {
 }
 
 impl RpcClient {
-    pub async fn connect(erlang_node: &NodeName, cookie: &str) -> anyhow::Result<Self> {
-        let client = erl_rpc::RpcClient::connect(&erlang_node.to_string(), cookie).await?;
+    pub async fn connect(
+        erlang_node: &NodeName,
+        port: Option<u16>,
+        cookie: &str,
+    ) -> anyhow::Result<Self> {
+        let client = if let Some(port) = port {
+            erl_rpc::RpcClient::connect_with_port(&erlang_node.to_string(), port, cookie).await?
+        } else {
+            erl_rpc::RpcClient::connect(&erlang_node.to_string(), cookie).await?
+        };
         let handle = client.handle();
         smol::spawn(async {
             if let Err(e) = client.run().await {
