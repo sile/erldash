@@ -30,7 +30,7 @@ jobs:
     needs: github-release-draft
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Install dependent packages
         run: sudo apt install -y musl-tools
@@ -60,14 +60,14 @@ jobs:
 
   macos-binary:
     name: 'Upload Binary for MacOS'
-    runs-on: macos-11 # TODO: Use `macos-latest` once it supports `aarch64-apple-darwin`
+    runs-on: macos-latest
     needs: github-release-draft
     strategy:
       matrix:
         target: ["x86_64-apple-darwin", "aarch64-apple-darwin"]
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Install stable toolchain
         uses: actions-rs/toolchain@v1
