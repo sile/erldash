@@ -30,24 +30,16 @@ jobs:
     needs: github-release-draft
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install dependent packages
         run: sudo apt install -y musl-tools
 
       - name: Install stable toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          target: x86_64-unknown-linux-musl
-          override: true
+        run: rustup toolchain install stable --profile minimal --target x86_64-unknown-linux-musl --no-self-update && rustup default stable
 
       - name: Run cargo build
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --release --target=x86_64-unknown-linux-musl
+        run: cargo build --release --target=x86_64-unknown-linux-musl
 
       - uses: actions/upload-release-asset@v1
         env:
@@ -67,21 +59,13 @@ jobs:
         target: ["x86_64-apple-darwin", "aarch64-apple-darwin"]
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install stable toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          target: ${{ matrix.target }}
-          override: true
+        run: rustup toolchain install stable --profile minimal --target ${{ matrix.target }} --no-self-update && rustup default stable
 
       - name: Run cargo build
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --release --target=${{ matrix.target }}
+        run: cargo build --release --target=${{ matrix.target }}
 
       - uses: actions/upload-release-asset@v1
         env:

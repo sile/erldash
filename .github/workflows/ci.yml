@@ -1,5 +1,3 @@
-# Based on https://github.com/actions-rs/meta/blob/master/recipes/quickstart.md
-
 name: CI
 
 on: [push]
@@ -13,43 +11,25 @@ jobs:
         toolchain: [stable, beta, nightly]
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v4
-
-      - name: Install ${{ matrix.toolchain }} toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: ${{ matrix.toolchain }}
-          override: true
-
-      - name: Run cargo check
-        uses: actions-rs/cargo@v1
-        with:
-          command: check
-          args: --all
+        uses: actions/checkout@v6
+      - run: rustup toolchain install ${{ matrix.toolchain }} --profile minimal --no-self-update && rustup default ${{ matrix.toolchain }}
+      - run: cargo check --all
 
   test:
     name: Test Suite
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        toolchain: [stable, beta, nightly]
+        otp: ['26.0', '27.0', '28.0']
+        toolchain: [stable]
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v4
-
-      - name: Install ${{ matrix.toolchain }} toolchain
-        uses: actions-rs/toolchain@v1
+        uses: actions/checkout@v6
+      - uses: erlef/setup-beam@v1
         with:
-          profile: minimal
-          toolchain: ${{ matrix.toolchain }}
-          override: true
-
-      - name: Run cargo test
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --all
+          otp-version: ${{ matrix.otp }}
+      - run: rustup toolchain install ${{ matrix.toolchain }} --profile minimal --no-self-update && rustup default ${{ matrix.toolchain }}
+      - run: cargo test --all
 
   lints:
     name: Lints
@@ -59,24 +39,7 @@ jobs:
         toolchain: [stable]
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v4
-
-      - name: Install ${{ matrix.toolchain }} toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: ${{ matrix.toolchain }}
-          override: true
-          components: rustfmt, clippy
-
-      - name: Run cargo fmt
-        uses: actions-rs/cargo@v1
-        with:
-          command: fmt
-          args: --all -- --check
-
-      - name: Run cargo clippy
-        uses: actions-rs/cargo@v1
-        with:
-          command: clippy
-          args: --all -- -D warnings
+        uses: actions/checkout@v6
+      - run: rustup toolchain install ${{ matrix.toolchain }} --profile minimal --component rustfmt,clippy --no-self-update && rustup default ${{ matrix.toolchain }}
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --all -- -D warnings

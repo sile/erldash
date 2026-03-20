@@ -1,6 +1,6 @@
 use crate::erlang::{MSAccThread, RpcClient, SystemVersion};
+use crate::error::{self, Context};
 use crate::{Command, ReplayArgs, RunArgs};
-use anyhow::Context;
 use nojson::DisplayJson;
 use smol::fs::File;
 use smol::io::AsyncWriteExt;
@@ -88,15 +88,12 @@ impl Metrics {
             if let MetricValue::Counter {
                 raw_value, value, ..
             } = value
-            {
-                if let Some(MetricValue::Counter {
+                && let Some(MetricValue::Counter {
                     raw_value: prev, ..
                 }) = prev.items.get(name)
-                {
-                    if let Some(delta) = raw_value.checked_sub(*prev) {
-                        *value = Some(delta as f64 / duration.as_secs_f64());
-                    }
-                }
+                && let Some(delta) = raw_value.checked_sub(*prev)
+            {
+                *value = Some(delta as f64 / duration.as_secs_f64());
             }
         }
     }
@@ -341,7 +338,7 @@ pub enum MetricsPoller {
 }
 
 impl MetricsPoller {
-    pub fn start_thread(command: Command) -> anyhow::Result<Self> {
+    pub fn start_thread(command: Command) -> error::Result<Self> {
         match command {
             Command::Run(args) => RealtimeMetricsPoller::start_thread(args).map(Self::Realtime),
             Command::Replay(args) => ReplayMetricsPoller::new(args).map(Self::Replay),
@@ -383,9 +380,11 @@ impl MetricsPoller {
         &self,
         start_time: Duration,
         end_time: Duration,
-    ) -> anyhow::Result<impl '_ + Iterator<Item = &Metrics>> {
+    ) -> error::Result<impl '_ + Iterator<Item = &Metrics>> {
         let Self::Replay(poller) = self else {
-            anyhow::bail!("`get_metrics_range()` is only available in replay mode");
+            return Err(error::Error::new(
+                "`get_metrics_range()` is only available in replay mode",
+            ));
         };
         Ok(poller.metrics_log.iter().filter(move |metrics| {
             let time = metrics.timestamp;
@@ -436,7 +435,7 @@ pub struct ReplayMetricsPoller {
 }
 
 impl ReplayMetricsPoller {
-    fn new(args: ReplayArgs) -> anyhow::Result<Self> {
+    fn new(args: ReplayArgs) -> error::Result<Self> {
         let record_file_path = args.file;
         let file = std::fs::File::open(&record_file_path).with_context(|| {
             format!("failed to open record file: {}", record_file_path.display())
@@ -461,7 +460,7 @@ impl ReplayMetricsPoller {
                 .with_context(|| format!("failed to parse record file: line={}", i + 1))?;
             metrics_log.push(metrics);
         }
-        let header = header.ok_or_else(|| anyhow::anyhow!("record file is empty"))?;
+        let header = header.ok_or_else(|| error::Error::new("record file is empty"))?;
         Ok(Self {
             header,
             metrics_log,
@@ -478,7 +477,7 @@ pub struct RealtimeMetricsPoller {
 }
 
 impl RealtimeMetricsPoller {
-    fn start_thread(args: RunArgs) -> anyhow::Result<Self> {
+    fn start_thread(args: RunArgs) -> error::Result<Self> {
         MetricsPollerThread::start_thread(args)
     }
 }
@@ -490,7 +489,7 @@ impl Drop for RealtimeMetricsPoller {
                 self.rpc_client
                     .set_system_flag_bool("microstate_accounting", "false"),
             ) {
-                log::warn!("faild to disable microstate accounting: {e}");
+                log::warn!("faild to disable microstate accounting: {e:?}");
             } else {
                 log::debug!("disabled microstate accounting");
             }
@@ -510,13 +509,13 @@ struct MetricsPollerThread {
 }
 
 impl MetricsPollerThread {
-    fn start_thread(args: RunArgs) -> anyhow::Result<RealtimeMetricsPoller> {
+    fn start_thread(args: RunArgs) -> error::Result<RealtimeMetricsPoller> {
         let (tx, rx) = mpsc::channel();
 
         let rpc_client: RpcClient = smol::block_on(async {
             let cookie = args.find_cookie()?;
             let client = RpcClient::connect(&args.erlang_node, args.port, &cookie).await?;
-            Ok(client) as anyhow::Result<_>
+            Ok(client) as error::Result<_>
         })?;
         let system_version = smol::block_on(rpc_client.get_system_version())?;
         let old_microstate_accounting_flag =
@@ -561,7 +560,7 @@ impl MetricsPollerThread {
         Ok(poller)
     }
 
-    async fn write_json_line(&mut self, value: &impl DisplayJson) -> anyhow::Result<()> {
+    async fn write_json_line(&mut self, value: &impl DisplayJson) -> error::Result<()> {
         if let Some(file) = &mut self.record_file {
             file.write_all(format!("{}\n", nojson::Json(value)).as_bytes())
                 .await?;
@@ -575,21 +574,21 @@ impl MetricsPollerThread {
         let mut next_time = Duration::from_secs(0);
         smol::block_on(async {
             if let Err(e) = self.write_json_line(&self.header.clone()).await {
-                log::error!("faild to write record file: {e}");
+                log::error!("faild to write record file: {e:?}");
                 return;
             }
 
             loop {
                 match self.poll_once().await {
                     Err(e) => {
-                        log::error!("faild to poll metrics: {e}");
+                        log::error!("faild to poll metrics: {e:?}");
                         break;
                     }
                     Ok(metrics) => {
                         let elapsed = metrics.timestamp;
 
                         if let Err(e) = self.write_json_line(&metrics).await {
-                            log::error!("faild to write record file: {e}");
+                            log::error!("faild to write record file: {e:?}");
                             break;
                         }
 
@@ -661,7 +660,7 @@ impl MetricsPollerThread {
         }
     }
 
-    async fn poll_once(&mut self) -> anyhow::Result<Metrics> {
+    async fn poll_once(&mut self) -> error::Result<Metrics> {
         let mut metrics = Metrics::new(self.start);
 
         let msacc = self
