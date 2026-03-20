@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - '*'
+      - 'v*'
 
 jobs:
   github-release-draft:
@@ -15,12 +15,12 @@ jobs:
     steps:
       - name: Get the version
         id: get_version
-        run: echo ::set-output name=VERSION::${GITHUB_REF/refs\/tags\//}
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
 
       - id: create-release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ steps.get_version.outputs.VERSION }}
+          tag_name: v${{ steps.get_version.outputs.VERSION }}
           name: v${{ steps.get_version.outputs.VERSION }}
           draft: true
 
