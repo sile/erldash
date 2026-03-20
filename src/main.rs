@@ -1,43 +1,18 @@
 use anyhow::Context;
 use erldash::{metrics, ui, Command, ReplayArgs, RunArgs};
 
-struct Args {
-    command: Command,
-    logfile: Option<std::path::PathBuf>,
-    loglevel: simplelog::LevelFilter,
-    truncate_log: bool,
-}
-
 fn main() -> noargs::Result<()> {
-    let args = match parse_args()? {
-        Some(args) => args,
-        None => return Ok(()),
-    };
-
-    run(args).map_err(noargs::Error::from)
-}
-
-fn run(args: Args) -> anyhow::Result<()> {
-    setup_logger(args.logfile.as_deref(), args.loglevel, args.truncate_log)?;
-
-    let poller = metrics::MetricsPoller::start_thread(args.command)?;
-    let app = ui::App::new(poller)?;
-    app.run()?;
-    Ok(())
-}
-
-fn parse_args() -> noargs::Result<Option<Args>> {
     let mut args = noargs::raw_args();
     args.metadata_mut().app_name = env!("CARGO_PKG_NAME");
     args.metadata_mut().app_description = env!("CARGO_PKG_DESCRIPTION");
 
     if noargs::VERSION_FLAG.take(&mut args).is_present() {
         println!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
-        return Ok(None);
+        return Ok(());
     }
     noargs::HELP_FLAG.take_help(&mut args);
 
-    // Hidden options (parsed before subcommands).
+    // Logging options.
     let logfile: Option<std::path::PathBuf> = noargs::opt("logfile")
         .ty("FILE")
         .doc("Log file path")
@@ -55,34 +30,40 @@ fn parse_args() -> noargs::Result<Option<Args>> {
 
     // Subcommands.
     let mut command = None;
-    if command.is_none() {
-        command = try_parse_run(&mut args)?;
-    }
-    if command.is_none() {
-        command = try_parse_replay(&mut args)?;
-    }
+    let _ = try_parse_run(&mut args, &mut command)? || try_parse_replay(&mut args, &mut command)?;
 
     if let Some(help) = args.finish()? {
         print!("{help}");
-        return Ok(None);
+        return Ok(());
     }
 
     let command = command.expect("unreachable: a command should have been parsed");
-    Ok(Some(Args {
-        command,
-        logfile,
-        loglevel,
-        truncate_log,
-    }))
+    run(command, logfile.as_deref(), loglevel, truncate_log).map_err(noargs::Error::from)
 }
 
-fn try_parse_run(args: &mut noargs::RawArgs) -> noargs::Result<Option<Command>> {
+fn run(
+    command: Command,
+    logfile: Option<&std::path::Path>,
+    loglevel: simplelog::LevelFilter,
+    truncate_log: bool,
+) -> anyhow::Result<()> {
+    setup_logger(logfile, loglevel, truncate_log)?;
+    let poller = metrics::MetricsPoller::start_thread(command)?;
+    let app = ui::App::new(poller)?;
+    app.run()?;
+    Ok(())
+}
+
+fn try_parse_run(
+    args: &mut noargs::RawArgs,
+    command: &mut Option<Command>,
+) -> noargs::Result<bool> {
     if !noargs::cmd("run")
         .doc("Run the dashboard")
         .take(args)
         .is_present()
     {
-        return Ok(None);
+        return Ok(false);
     }
 
     let polling_interval: std::num::NonZeroUsize = noargs::opt("polling-interval")
@@ -114,25 +95,29 @@ fn try_parse_run(args: &mut noargs::RawArgs) -> noargs::Result<Option<Command>> 
         .then(|a| a.value().parse())?;
 
     if args.metadata().help_mode {
-        return Ok(None);
+        return Ok(true);
     }
 
-    Ok(Some(Command::Run(RunArgs {
+    *command = Some(Command::Run(RunArgs {
         erlang_node,
         polling_interval,
         cookie,
         record,
         port,
-    })))
+    }));
+    Ok(true)
 }
 
-fn try_parse_replay(args: &mut noargs::RawArgs) -> noargs::Result<Option<Command>> {
+fn try_parse_replay(
+    args: &mut noargs::RawArgs,
+    command: &mut Option<Command>,
+) -> noargs::Result<bool> {
     if !noargs::cmd("replay")
         .doc("Replay a previously recorded dashboard session")
         .take(args)
         .is_present()
     {
-        return Ok(None);
+        return Ok(false);
     }
 
     let file: std::path::PathBuf = noargs::arg("<FILE>")
@@ -142,10 +127,11 @@ fn try_parse_replay(args: &mut noargs::RawArgs) -> noargs::Result<Option<Command
         .then(|a| Ok::<_, std::convert::Infallible>(a.value().into()))?;
 
     if args.metadata().help_mode {
-        return Ok(None);
+        return Ok(true);
     }
 
-    Ok(Some(Command::Replay(ReplayArgs { file })))
+    *command = Some(Command::Replay(ReplayArgs { file }));
+    Ok(true)
 }
 
 fn setup_logger(
