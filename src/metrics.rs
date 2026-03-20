@@ -21,8 +21,8 @@ pub struct Metrics {
 impl DisplayJson for Metrics {
     fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
         f.object(|f| {
-            f.member("timestamp", &DurationJson(&self.timestamp))?;
-            f.members(self.items.iter())
+            f.member("timestamp", DurationJson(&self.timestamp))?;
+            f.member("items", &self.items)
         })
     }
 }
@@ -32,14 +32,8 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for Metrics {
 
     fn try_from(value: nojson::RawJsonValue<'text, 'raw>) -> Result<Self, Self::Error> {
         let timestamp = parse_duration(value.to_member("timestamp")?.required()?)?;
-        let mut items = BTreeMap::new();
-        for (k, v) in value.to_object()? {
-            let key: String = k.to_unquoted_string_str()?.into_owned();
-            if key == "timestamp" {
-                continue;
-            }
-            items.insert(key, v.try_into()?);
-        }
+        let items: BTreeMap<String, MetricValue> =
+            value.to_member("items")?.required()?.try_into()?;
         Ok(Metrics { timestamp, items })
     }
 }
@@ -89,7 +83,7 @@ impl Metrics {
     {
         self.items
             .iter()
-            .filter(move |(_, v)| v.parent().as_ref().map_or(false, |&x| x == parent))
+            .filter(move |(_, v)| v.parent().as_ref().is_some_and(|&x| x == parent))
             .map(|(k, v)| (k.as_str(), v))
     }
 
@@ -130,28 +124,57 @@ pub enum MetricValue {
     },
 }
 
+struct JsonFn<F>(F);
+
+impl<F: Fn(&mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result> DisplayJson for JsonFn<F> {
+    fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
+        (self.0)(f)
+    }
+}
+
 impl DisplayJson for MetricValue {
     fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
         f.object(|f| match self {
             MetricValue::Gauge { value, parent } => {
-                f.member("type", "Gauge")?;
-                f.member("value", *value)?;
-                f.member("parent", parent)
+                let (value, parent) = (*value, parent);
+                f.member(
+                    "Gauge",
+                    JsonFn(move |f: &mut nojson::JsonFormatter<'_, '_>| {
+                        f.object(|f| {
+                            f.member("value", value)?;
+                            f.member("parent", parent)
+                        })
+                    }),
+                )
             }
             MetricValue::Counter {
                 raw_value,
                 value,
                 parent,
             } => {
-                f.member("type", "Counter")?;
-                f.member("raw_value", *raw_value)?;
-                f.member("value", value)?;
-                f.member("parent", parent)
+                let (raw_value, value, parent) = (*raw_value, value, parent);
+                f.member(
+                    "Counter",
+                    JsonFn(move |f: &mut nojson::JsonFormatter<'_, '_>| {
+                        f.object(|f| {
+                            f.member("raw_value", raw_value)?;
+                            f.member("value", value)?;
+                            f.member("parent", parent)
+                        })
+                    }),
+                )
             }
             MetricValue::Utilization { value, parent } => {
-                f.member("type", "Utilization")?;
-                f.member("value", *value)?;
-                f.member("parent", parent)
+                let (value, parent) = (*value, parent);
+                f.member(
+                    "Utilization",
+                    JsonFn(move |f: &mut nojson::JsonFormatter<'_, '_>| {
+                        f.object(|f| {
+                            f.member("value", value)?;
+                            f.member("parent", parent)
+                        })
+                    }),
+                )
             }
         })
     }
@@ -161,22 +184,24 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for MetricValue {
     type Error = nojson::JsonParseError;
 
     fn try_from(value: nojson::RawJsonValue<'text, 'raw>) -> Result<Self, Self::Error> {
-        let type_str: String = value.to_member("type")?.required()?.try_into()?;
-        match type_str.as_str() {
-            "Gauge" => Ok(MetricValue::Gauge {
-                value: value.to_member("value")?.required()?.try_into()?,
-                parent: value.to_member("parent")?.required()?.try_into()?,
-            }),
-            "Counter" => Ok(MetricValue::Counter {
-                raw_value: value.to_member("raw_value")?.required()?.try_into()?,
-                value: value.to_member("value")?.required()?.try_into()?,
-                parent: value.to_member("parent")?.required()?.try_into()?,
-            }),
-            "Utilization" => Ok(MetricValue::Utilization {
-                value: value.to_member("value")?.required()?.try_into()?,
-                parent: value.to_member("parent")?.required()?.try_into()?,
-            }),
-            other => Err(value.invalid(format!("unknown MetricValue type: {other}"))),
+        if let Some(inner) = value.to_member("Gauge")?.optional() {
+            Ok(MetricValue::Gauge {
+                value: inner.to_member("value")?.required()?.try_into()?,
+                parent: inner.to_member("parent")?.required()?.try_into()?,
+            })
+        } else if let Some(inner) = value.to_member("Counter")?.optional() {
+            Ok(MetricValue::Counter {
+                raw_value: inner.to_member("raw_value")?.required()?.try_into()?,
+                value: inner.to_member("value")?.required()?.try_into()?,
+                parent: inner.to_member("parent")?.required()?.try_into()?,
+            })
+        } else if let Some(inner) = value.to_member("Utilization")?.optional() {
+            Ok(MetricValue::Utilization {
+                value: inner.to_member("value")?.required()?.try_into()?,
+                parent: inner.to_member("parent")?.required()?.try_into()?,
+            })
+        } else {
+            Err(value.invalid("expected a MetricValue (Gauge, Counter, or Utilization)"))
         }
     }
 }
@@ -400,7 +425,7 @@ impl DisplayJson for Header {
         f.object(|f| {
             f.member("system_version", &self.system_version)?;
             f.member("node_name", &self.node_name)?;
-            f.member("start_time", &self.start_time.to_rfc3339())
+            f.member("start_time", self.start_time.to_rfc3339())
         })
     }
 }
