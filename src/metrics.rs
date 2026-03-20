@@ -780,3 +780,100 @@ impl ThreadTime {
         self.runtime as f64 / self.realtime as f64 * 100.0
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn roundtrip<T>(value: &T, expected_json: &str)
+    where
+        T: DisplayJson + for<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>, Error = nojson::JsonParseError>,
+        T: std::fmt::Debug,
+    {
+        let json = nojson::Json(value).to_string();
+        assert_eq!(json, expected_json);
+        let parsed: nojson::Json<T> = json.parse().unwrap();
+        let re_json = nojson::Json(&parsed.0).to_string();
+        assert_eq!(json, re_json);
+    }
+
+    #[test]
+    fn metric_value_gauge() {
+        roundtrip(
+            &MetricValue::gauge(42),
+            r#"{"Gauge":{"value":42,"parent":null}}"#,
+        );
+    }
+
+    #[test]
+    fn metric_value_gauge_with_parent() {
+        roundtrip(
+            &MetricValue::gauge_with_parent(10, "root"),
+            r#"{"Gauge":{"value":10,"parent":"root"}}"#,
+        );
+    }
+
+    #[test]
+    fn metric_value_counter() {
+        roundtrip(
+            &MetricValue::counter(100),
+            r#"{"Counter":{"raw_value":100,"value":null,"parent":null}}"#,
+        );
+    }
+
+    #[test]
+    fn metric_value_counter_with_parent() {
+        roundtrip(
+            &MetricValue::counter_with_parent(200, "stats"),
+            r#"{"Counter":{"raw_value":200,"value":null,"parent":"stats"}}"#,
+        );
+    }
+
+    #[test]
+    fn metric_value_utilization() {
+        roundtrip(
+            &MetricValue::utilization(75.5),
+            r#"{"Utilization":{"value":75.5,"parent":null}}"#,
+        );
+    }
+
+    #[test]
+    fn metric_value_utilization_with_parent() {
+        roundtrip(
+            &MetricValue::utilization_with_parent(50.0, "cpu"),
+            r#"{"Utilization":{"value":50,"parent":"cpu"}}"#,
+        );
+    }
+
+    #[test]
+    fn metrics_roundtrip() {
+        let mut metrics = Metrics {
+            timestamp: Duration::new(10, 500_000_000),
+            items: BTreeMap::new(),
+        };
+        metrics.insert("mem.total", MetricValue::gauge(1024));
+        metrics.insert("cpu.util", MetricValue::utilization(85.3));
+
+        let json = nojson::Json(&metrics).to_string();
+        assert!(json.contains(r#""timestamp":{"secs":10,"nanos":500000000}"#));
+        assert!(json.contains(r#""items":"#));
+
+        let parsed: nojson::Json<Metrics> = json.parse().unwrap();
+        assert_eq!(parsed.0.timestamp, metrics.timestamp);
+        assert_eq!(parsed.0.items.len(), 2);
+    }
+
+    #[test]
+    fn header_roundtrip() {
+        let header = Header {
+            system_version: r#""Erlang/OTP 26""#.parse::<nojson::Json<SystemVersion>>().unwrap().0,
+            node_name: "test@localhost".to_string(),
+            start_time: chrono::Local::now(),
+        };
+        let json = nojson::Json(&header).to_string();
+        let parsed: nojson::Json<Header> = json.parse().unwrap();
+        assert_eq!(parsed.0.system_version.get(), header.system_version.get());
+        assert_eq!(parsed.0.node_name, header.node_name);
+        assert_eq!(parsed.0.start_time, header.start_time);
+    }
+}
