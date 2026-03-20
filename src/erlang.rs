@@ -1,10 +1,23 @@
 use erl_dist::node::NodeName;
 use erl_dist::term::{Atom, List, Map, Term, Tuple};
-use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct SystemVersion(String);
+
+impl nojson::DisplayJson for SystemVersion {
+    fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for SystemVersion {
+    type Error = nojson::JsonParseError;
+
+    fn try_from(value: nojson::RawJsonValue<'text, 'raw>) -> Result<Self, Self::Error> {
+        Ok(SystemVersion(value.try_into()?))
+    }
+}
 
 impl SystemVersion {
     pub fn get(&self) -> &str {
