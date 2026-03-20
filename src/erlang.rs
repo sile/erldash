@@ -200,12 +200,17 @@ fn term_to_u64(term: Term) -> error::Result<u64> {
 }
 
 fn term_to_string(term: Term) -> error::Result<String> {
-    let bytes = term_to_list(term)?
-        .elements
-        .into_iter()
-        .map(term_to_u8)
-        .collect::<error::Result<Vec<_>>>()?;
-    Ok(String::from_utf8(bytes)?)
+    match term {
+        Term::ByteList(bl) => Ok(String::from_utf8(bl.bytes)?),
+        other => {
+            let bytes = term_to_list(other)?
+                .elements
+                .into_iter()
+                .map(term_to_u8)
+                .collect::<error::Result<Vec<_>>>()?;
+            Ok(String::from_utf8(bytes)?)
+        }
+    }
 }
 
 fn term_to_u8(term: Term) -> error::Result<u8> {

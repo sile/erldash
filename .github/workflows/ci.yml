@@ -1,5 +1,3 @@
-# Based on https://github.com/actions-rs/meta/blob/master/recipes/quickstart.md
-
 name: CI
 
 on: [push]
@@ -14,28 +12,24 @@ jobs:
     steps:
       - name: Checkout sources
         uses: actions/checkout@v6
-
-      - name: Install ${{ matrix.toolchain }} toolchain
-        run: rustup toolchain install ${{ matrix.toolchain }} --profile minimal --no-self-update && rustup default ${{ matrix.toolchain }}
-
-      - name: Run cargo check
-        run: cargo check --all
+      - run: rustup toolchain install ${{ matrix.toolchain }} --profile minimal --no-self-update && rustup default ${{ matrix.toolchain }}
+      - run: cargo check --all
 
   test:
     name: Test Suite
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        toolchain: [stable, beta, nightly]
+        otp: ['26.0', '27.0', '28.0']
+        toolchain: [stable]
     steps:
       - name: Checkout sources
         uses: actions/checkout@v6
-
-      - name: Install ${{ matrix.toolchain }} toolchain
-        run: rustup toolchain install ${{ matrix.toolchain }} --profile minimal --no-self-update && rustup default ${{ matrix.toolchain }}
-
-      - name: Run cargo test
-        run: cargo test --all
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: ${{ matrix.otp }}
+      - run: rustup toolchain install ${{ matrix.toolchain }} --profile minimal --no-self-update && rustup default ${{ matrix.toolchain }}
+      - run: cargo test --all
 
   lints:
     name: Lints
@@ -46,12 +40,6 @@ jobs:
     steps:
       - name: Checkout sources
         uses: actions/checkout@v6
-
-      - name: Install ${{ matrix.toolchain }} toolchain
-        run: rustup toolchain install ${{ matrix.toolchain }} --profile minimal --component rustfmt,clippy --no-self-update && rustup default ${{ matrix.toolchain }}
-
-      - name: Run cargo fmt
-        run: cargo fmt --all -- --check
-
-      - name: Run cargo clippy
-        run: cargo clippy --all -- -D warnings
+      - run: rustup toolchain install ${{ matrix.toolchain }} --profile minimal --component rustfmt,clippy --no-self-update && rustup default ${{ matrix.toolchain }}
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --all -- -D warnings
