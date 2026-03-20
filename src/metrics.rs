@@ -563,9 +563,8 @@ impl MetricsPollerThread {
 
     async fn write_json_line(&mut self, value: &impl DisplayJson) -> anyhow::Result<()> {
         if let Some(file) = &mut self.record_file {
-            let mut bytes = nojson::Json(value).to_string().into_bytes();
-            bytes.push(b'\n');
-            file.write_all(&bytes).await?;
+            file.write_all(format!("{}\n", nojson::Json(value)).as_bytes())
+                .await?;
             file.flush().await?;
         }
         Ok(())
