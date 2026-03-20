@@ -38,17 +38,16 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for Metrics {
     type Error = nojson::JsonParseError;
 
     fn try_from(value: nojson::RawJsonValue<'text, 'raw>) -> Result<Self, Self::Error> {
-        let timestamp = parse_duration(value.to_member("timestamp")?.required()?)?;
+        let ts = value.to_member("timestamp")?.required()?;
+        let secs: u64 = ts.to_member("secs")?.required()?.try_into()?;
+        let nanos: u32 = ts.to_member("nanos")?.required()?.try_into()?;
         let items: BTreeMap<String, MetricValue> =
             value.to_member("items")?.required()?.try_into()?;
-        Ok(Metrics { timestamp, items })
+        Ok(Metrics {
+            timestamp: Duration::new(secs, nanos),
+            items,
+        })
     }
-}
-
-fn parse_duration(value: nojson::RawJsonValue) -> Result<Duration, nojson::JsonParseError> {
-    let secs: u64 = value.to_member("secs")?.required()?.try_into()?;
-    let nanos: u32 = value.to_member("nanos")?.required()?.try_into()?;
-    Ok(Duration::new(secs, nanos))
 }
 
 impl Metrics {
