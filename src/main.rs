@@ -1,5 +1,5 @@
 use anyhow::Context;
-use erldash::{metrics, ui, Command, ReplayArgs, RunArgs};
+use erldash::{Command, ReplayArgs, RunArgs, metrics, ui};
 
 fn main() -> noargs::Result<()> {
     let mut args = noargs::raw_args();

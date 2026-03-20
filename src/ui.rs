@@ -1,5 +1,6 @@
-use crate::metrics::{format_u64, Header, MetricValue, Metrics, MetricsPoller};
+use crate::metrics::{Header, MetricValue, Metrics, MetricsPoller, format_u64};
 use crossterm::event::{KeyCode, KeyEvent};
+use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::symbols::Marker;
@@ -7,7 +8,6 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{
     Axis, Block, Borders, Cell, Chart, Dataset, GraphType, Paragraph, Row, Table, TableState,
 };
-use ratatui::Frame;
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
@@ -469,10 +469,12 @@ impl UiState {
             return;
         }
 
-        let datasets = vec![Dataset::default()
-            .marker(Marker::Braille)
-            .graph_type(GraphType::Line)
-            .data(&data)];
+        let datasets = vec![
+            Dataset::default()
+                .marker(Marker::Braille)
+                .graph_type(GraphType::Line)
+                .data(&data),
+        ];
 
         let lower_bound = data
             .iter()

@@ -88,16 +88,12 @@ impl Metrics {
             if let MetricValue::Counter {
                 raw_value, value, ..
             } = value
-            {
-                if let Some(MetricValue::Counter {
+                && let Some(MetricValue::Counter {
                     raw_value: prev, ..
                 }) = prev.items.get(name)
-                {
-                    if let Some(delta) = raw_value.checked_sub(*prev) {
+                    && let Some(delta) = raw_value.checked_sub(*prev) {
                         *value = Some(delta as f64 / duration.as_secs_f64());
                     }
-                }
-            }
         }
     }
 }

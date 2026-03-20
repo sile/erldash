@@ -30,7 +30,9 @@ pub fn find_cookie() -> anyhow::Result<String> {
         let cookie = std::fs::read_to_string(dir.join(".erlang.cookie"))?;
         Ok(cookie)
     } else {
-        anyhow::bail!("Could not find the cookie file $HOME/.erlang.cookie. Please specify `-cookie` arg instead.");
+        anyhow::bail!(
+            "Could not find the cookie file $HOME/.erlang.cookie. Please specify `-cookie` arg instead."
+        );
     }
 }
 
