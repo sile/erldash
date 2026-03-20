@@ -225,11 +225,14 @@ fn term_to_u8(term: Term) -> error::Result<u8> {
 }
 
 fn term_to_u64_list(term: Term) -> error::Result<Vec<u64>> {
-    term_to_list(term)?
-        .elements
-        .into_iter()
-        .map(term_to_u64)
-        .collect()
+    match term {
+        Term::ByteList(bl) => Ok(bl.bytes.into_iter().map(u64::from).collect()),
+        other => term_to_list(other)?
+            .elements
+            .into_iter()
+            .map(term_to_u64)
+            .collect(),
+    }
 }
 
 fn term_to_bool(term: Term) -> error::Result<bool> {
