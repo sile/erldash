@@ -787,7 +787,11 @@ mod tests {
 
     fn roundtrip<T>(value: &T, expected_json: &str)
     where
-        T: DisplayJson + for<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>, Error = nojson::JsonParseError>,
+        T: DisplayJson
+            + for<'text, 'raw> TryFrom<
+                nojson::RawJsonValue<'text, 'raw>,
+                Error = nojson::JsonParseError,
+            >,
         T: std::fmt::Debug,
     {
         let json = nojson::Json(value).to_string();
@@ -818,6 +822,18 @@ mod tests {
         roundtrip(
             &MetricValue::counter(100),
             r#"{"Counter":{"raw_value":100,"value":null,"parent":null}}"#,
+        );
+    }
+
+    #[test]
+    fn metric_value_counter_with_value() {
+        roundtrip(
+            &MetricValue::Counter {
+                raw_value: 300,
+                value: Some(42.5),
+                parent: None,
+            },
+            r#"{"Counter":{"raw_value":300,"value":42.5,"parent":null}}"#,
         );
     }
 
@@ -853,22 +869,21 @@ mod tests {
         };
         metrics.insert("mem.total", MetricValue::gauge(1024));
         metrics.insert("cpu.util", MetricValue::utilization(85.3));
-
-        let json = nojson::Json(&metrics).to_string();
-        assert!(json.contains(r#""timestamp":{"secs":10,"nanos":500000000}"#));
-        assert!(json.contains(r#""items":"#));
-
-        let parsed: nojson::Json<Metrics> = json.parse().unwrap();
-        assert_eq!(parsed.0.timestamp, metrics.timestamp);
-        assert_eq!(parsed.0.items.len(), 2);
+        roundtrip(
+            &metrics,
+            r#"{"timestamp":{"secs":10,"nanos":500000000},"items":{"cpu.util":{"Utilization":{"value":85.3,"parent":null}},"mem.total":{"Gauge":{"value":1024,"parent":null}}}}"#,
+        );
     }
 
     #[test]
     fn header_roundtrip() {
+        let start_time = chrono::DateTime::parse_from_rfc3339("2025-01-15T12:30:00+09:00")
+            .unwrap()
+            .with_timezone(&chrono::Local);
         let header = Header {
             system_version: r#""Erlang/OTP 26""#.parse::<nojson::Json<SystemVersion>>().unwrap().0,
             node_name: "test@localhost".to_string(),
-            start_time: chrono::Local::now(),
+            start_time,
         };
         let json = nojson::Json(&header).to_string();
         let parsed: nojson::Json<Header> = json.parse().unwrap();
