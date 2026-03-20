@@ -46,7 +46,7 @@ $ cargo install erldash
 $ erldash
 ```
 
-Note that you need to use Rust-v1.58.0 or later to build `erldash`.
+Note that you need to use Rust 1.85.0 or later to build `erldash`.
 
 Usage
 -----
