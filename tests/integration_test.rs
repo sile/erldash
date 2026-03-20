@@ -52,8 +52,13 @@ fn connect_and_poll_metrics() {
             .await?;
         assert!(!old || old); // just check it returns a bool without error
 
-        let run_queues = client.get_statistics_u64_list("run_queue_lengths_all").await?;
-        assert!(!run_queues.is_empty(), "run_queue_lengths_all should return a non-empty list");
+        let run_queues = client
+            .get_statistics_u64_list("run_queue_lengths_all")
+            .await?;
+        assert!(
+            !run_queues.is_empty(),
+            "run_queue_lengths_all should return a non-empty list"
+        );
 
         let msacc = client.get_statistics_microstate_accounting().await?;
         assert!(
