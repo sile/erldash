@@ -1,7 +1,7 @@
 use crate::erlang::{MSAccThread, RpcClient, SystemVersion};
 use crate::{Command, ReplayArgs, RunArgs};
 use anyhow::Context;
-use serde::{Deserialize, Serialize};
+use nojson::DisplayJson;
 use smol::fs::File;
 use smol::io::AsyncWriteExt;
 use std::collections::BTreeMap;
@@ -12,10 +12,53 @@ use std::time::{Duration, Instant};
 type MetricsReceiver = mpsc::Receiver<Metrics>;
 type MetricsSender = mpsc::Sender<Metrics>;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct Metrics {
     pub timestamp: Duration,
     pub items: BTreeMap<String, MetricValue>,
+}
+
+impl DisplayJson for Metrics {
+    fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
+        f.object(|f| {
+            f.member("timestamp", &DurationJson(&self.timestamp))?;
+            f.members(self.items.iter())
+        })
+    }
+}
+
+impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for Metrics {
+    type Error = nojson::JsonParseError;
+
+    fn try_from(value: nojson::RawJsonValue<'text, 'raw>) -> Result<Self, Self::Error> {
+        let timestamp = parse_duration(value.to_member("timestamp")?.required()?)?;
+        let mut items = BTreeMap::new();
+        for (k, v) in value.to_object()? {
+            let key: String = k.to_unquoted_string_str()?.into_owned();
+            if key == "timestamp" {
+                continue;
+            }
+            items.insert(key, v.try_into()?);
+        }
+        Ok(Metrics { timestamp, items })
+    }
+}
+
+struct DurationJson<'a>(&'a Duration);
+
+impl DisplayJson for DurationJson<'_> {
+    fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
+        f.object(|f| {
+            f.member("secs", self.0.as_secs())?;
+            f.member("nanos", self.0.subsec_nanos())
+        })
+    }
+}
+
+fn parse_duration(value: nojson::RawJsonValue) -> Result<Duration, nojson::JsonParseError> {
+    let secs: u64 = value.to_member("secs")?.required()?.try_into()?;
+    let nanos: u32 = value.to_member("nanos")?.required()?.try_into()?;
+    Ok(Duration::new(secs, nanos))
 }
 
 impl Metrics {
@@ -70,7 +113,7 @@ impl Metrics {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub enum MetricValue {
     Gauge {
         value: u64,
@@ -85,6 +128,57 @@ pub enum MetricValue {
         value: f64,
         parent: Option<String>,
     },
+}
+
+impl DisplayJson for MetricValue {
+    fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
+        f.object(|f| match self {
+            MetricValue::Gauge { value, parent } => {
+                f.member("type", "Gauge")?;
+                f.member("value", *value)?;
+                f.member("parent", parent)
+            }
+            MetricValue::Counter {
+                raw_value,
+                value,
+                parent,
+            } => {
+                f.member("type", "Counter")?;
+                f.member("raw_value", *raw_value)?;
+                f.member("value", value)?;
+                f.member("parent", parent)
+            }
+            MetricValue::Utilization { value, parent } => {
+                f.member("type", "Utilization")?;
+                f.member("value", *value)?;
+                f.member("parent", parent)
+            }
+        })
+    }
+}
+
+impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for MetricValue {
+    type Error = nojson::JsonParseError;
+
+    fn try_from(value: nojson::RawJsonValue<'text, 'raw>) -> Result<Self, Self::Error> {
+        let type_str: String = value.to_member("type")?.required()?.try_into()?;
+        match type_str.as_str() {
+            "Gauge" => Ok(MetricValue::Gauge {
+                value: value.to_member("value")?.required()?.try_into()?,
+                parent: value.to_member("parent")?.required()?.try_into()?,
+            }),
+            "Counter" => Ok(MetricValue::Counter {
+                raw_value: value.to_member("raw_value")?.required()?.try_into()?,
+                value: value.to_member("value")?.required()?.try_into()?,
+                parent: value.to_member("parent")?.required()?.try_into()?,
+            }),
+            "Utilization" => Ok(MetricValue::Utilization {
+                value: value.to_member("value")?.required()?.try_into()?,
+                parent: value.to_member("parent")?.required()?.try_into()?,
+            }),
+            other => Err(value.invalid(format!("unknown MetricValue type: {other}"))),
+        }
+    }
 }
 
 impl MetricValue {
@@ -294,11 +388,39 @@ impl MetricsPoller {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct Header {
     pub system_version: SystemVersion,
     pub node_name: String,
     pub start_time: chrono::DateTime<chrono::Local>,
+}
+
+impl DisplayJson for Header {
+    fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
+        f.object(|f| {
+            f.member("system_version", &self.system_version)?;
+            f.member("node_name", &self.node_name)?;
+            f.member("start_time", &self.start_time.to_rfc3339())
+        })
+    }
+}
+
+impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for Header {
+    type Error = nojson::JsonParseError;
+
+    fn try_from(value: nojson::RawJsonValue<'text, 'raw>) -> Result<Self, Self::Error> {
+        let system_version = value.to_member("system_version")?.required()?.try_into()?;
+        let node_name: String = value.to_member("node_name")?.required()?.try_into()?;
+        let start_time_str: String = value.to_member("start_time")?.required()?.try_into()?;
+        let start_time = chrono::DateTime::parse_from_rfc3339(&start_time_str)
+            .map_err(|e| value.invalid(e))?
+            .with_timezone(&chrono::Local);
+        Ok(Header {
+            system_version,
+            node_name,
+            start_time,
+        })
+    }
 }
 
 #[derive(Debug)]
@@ -321,12 +443,15 @@ impl ReplayMetricsPoller {
             let line = line?;
             if i == 0 {
                 header = Some(
-                    serde_json::from_str(&line)
+                    line.parse::<nojson::Json<Header>>()
+                        .map(|j| j.0)
                         .with_context(|| format!("failed to parse record file: line={}", i + 1))?,
                 );
                 continue;
             }
-            let metrics = serde_json::from_str(&line)
+            let metrics = line
+                .parse::<nojson::Json<Metrics>>()
+                .map(|j| j.0)
                 .with_context(|| format!("failed to parse record file: line={}", i + 1))?;
             metrics_log.push(metrics);
         }
@@ -430,9 +555,9 @@ impl MetricsPollerThread {
         Ok(poller)
     }
 
-    async fn write_json_line(&mut self, value: &impl serde::Serialize) -> anyhow::Result<()> {
+    async fn write_json_line(&mut self, value: &impl DisplayJson) -> anyhow::Result<()> {
         if let Some(file) = &mut self.record_file {
-            let mut bytes = serde_json::to_vec(value)?;
+            let mut bytes = nojson::Json(value).to_string().into_bytes();
             bytes.push(b'\n');
             file.write_all(&bytes).await?;
             file.flush().await?;
