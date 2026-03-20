@@ -24,11 +24,9 @@ impl DisplayJson for Metrics {
             let ts = &self.timestamp;
             f.member(
                 "timestamp",
-                nojson::json(|f| {
-                    f.object(|f| {
-                        f.member("secs", ts.as_secs())?;
-                        f.member("nanos", ts.subsec_nanos())
-                    })
+                nojson::object(|f| {
+                    f.member("secs", ts.as_secs())?;
+                    f.member("nanos", ts.subsec_nanos())
                 }),
             )?;
             f.member("items", &self.items)
@@ -129,11 +127,9 @@ impl DisplayJson for MetricValue {
                 let (value, parent) = (*value, parent);
                 f.member(
                     "Gauge",
-                    nojson::json(move |f| {
-                        f.object(|f| {
-                            f.member("value", value)?;
-                            f.member("parent", parent)
-                        })
+                    nojson::object(move |f| {
+                        f.member("value", value)?;
+                        f.member("parent", parent)
                     }),
                 )
             }
@@ -145,12 +141,10 @@ impl DisplayJson for MetricValue {
                 let (raw_value, value, parent) = (*raw_value, value, parent);
                 f.member(
                     "Counter",
-                    nojson::json(move |f| {
-                        f.object(|f| {
-                            f.member("raw_value", raw_value)?;
-                            f.member("value", value)?;
-                            f.member("parent", parent)
-                        })
+                    nojson::object(move |f| {
+                        f.member("raw_value", raw_value)?;
+                        f.member("value", value)?;
+                        f.member("parent", parent)
                     }),
                 )
             }
@@ -158,11 +152,9 @@ impl DisplayJson for MetricValue {
                 let (value, parent) = (*value, parent);
                 f.member(
                     "Utilization",
-                    nojson::json(move |f| {
-                        f.object(|f| {
-                            f.member("value", value)?;
-                            f.member("parent", parent)
-                        })
+                    nojson::object(move |f| {
+                        f.member("value", value)?;
+                        f.member("parent", parent)
                     }),
                 )
             }
