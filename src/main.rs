@@ -1,4 +1,4 @@
-use anyhow::Context;
+use erldash::error::Context;
 use erldash::{Command, ReplayArgs, RunArgs, metrics, ui};
 
 fn main() -> noargs::Result<()> {
@@ -38,7 +38,8 @@ fn main() -> noargs::Result<()> {
     }
 
     let command = command.expect("unreachable: a command should have been parsed");
-    run(command, logfile.as_deref(), loglevel, truncate_log).map_err(noargs::Error::from)
+    run(command, logfile.as_deref(), loglevel, truncate_log)
+        .map_err(|e| noargs::Error::from(String::from(e)))
 }
 
 fn run(
@@ -46,7 +47,7 @@ fn run(
     logfile: Option<&std::path::Path>,
     loglevel: simplelog::LevelFilter,
     truncate_log: bool,
-) -> anyhow::Result<()> {
+) -> erldash::error::Result<()> {
     setup_logger(logfile, loglevel, truncate_log)?;
     let poller = metrics::MetricsPoller::start_thread(command)?;
     let app = ui::App::new(poller)?;
@@ -138,7 +139,7 @@ fn setup_logger(
     logfile: Option<&std::path::Path>,
     loglevel: simplelog::LevelFilter,
     truncate_log: bool,
-) -> anyhow::Result<()> {
+) -> erldash::error::Result<()> {
     if let Some(logfile) = logfile {
         let file = std::fs::OpenOptions::new()
             .append(!truncate_log)

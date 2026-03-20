@@ -1,3 +1,4 @@
+use crate::error;
 use crate::metrics::{Header, MetricValue, Metrics, MetricsPoller, format_u64};
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::Frame;
@@ -26,7 +27,7 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(poller: MetricsPoller) -> anyhow::Result<Self> {
+    pub fn new(poller: MetricsPoller) -> error::Result<Self> {
         let terminal = Self::setup_terminal()?;
         log::debug!("setup terminal");
 
@@ -40,7 +41,7 @@ impl App {
         })
     }
 
-    pub fn run(mut self) -> anyhow::Result<()> {
+    pub fn run(mut self) -> error::Result<()> {
         self.render_replay_ui_if_need()?;
         loop {
             if self.handle_event()? {
@@ -55,10 +56,12 @@ impl App {
         Ok(())
     }
 
-    fn handle_poll(&mut self) -> anyhow::Result<()> {
+    fn handle_poll(&mut self) -> error::Result<()> {
         match self.poller.poll_metrics(POLL_TIMEOUT) {
             Err(mpsc::RecvTimeoutError::Disconnected) => {
-                anyhow::bail!("Erlang metrics polling thread terminated unexpectedly");
+                return Err(error::Error::new(
+                    "Erlang metrics polling thread terminated unexpectedly",
+                ));
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {}
             Ok(metrics) => {
@@ -98,7 +101,7 @@ impl App {
         Ok(())
     }
 
-    fn handle_event(&mut self) -> anyhow::Result<bool> {
+    fn handle_event(&mut self) -> error::Result<bool> {
         while crossterm::event::poll(std::time::Duration::from_secs(0))? {
             match crossterm::event::read()? {
                 crossterm::event::Event::Key(key) => {
@@ -115,7 +118,7 @@ impl App {
         Ok(false)
     }
 
-    fn handle_key_event(&mut self, key: KeyEvent) -> anyhow::Result<bool> {
+    fn handle_key_event(&mut self, key: KeyEvent) -> error::Result<bool> {
         match key.code {
             KeyCode::Char('q') => {
                 return Ok(true);
@@ -171,14 +174,14 @@ impl App {
         Ok(false)
     }
 
-    fn render_ui(&mut self) -> anyhow::Result<()> {
+    fn render_ui(&mut self) -> error::Result<()> {
         if !self.ui.history.is_empty() {
             self.terminal.draw(|f| self.ui.render(f))?;
         }
         Ok(())
     }
 
-    fn render_replay_ui_if_need(&mut self) -> anyhow::Result<()> {
+    fn render_replay_ui_if_need(&mut self) -> error::Result<()> {
         if !self.ui.replay_mode {
             return Ok(());
         }
@@ -215,7 +218,7 @@ impl App {
         Ok(())
     }
 
-    fn setup_terminal() -> anyhow::Result<Terminal> {
+    fn setup_terminal() -> error::Result<Terminal> {
         crossterm::terminal::enable_raw_mode()?;
         let mut stdout = std::io::stdout();
         crossterm::execute!(stdout, crossterm::terminal::EnterAlternateScreen,)?;
@@ -224,7 +227,7 @@ impl App {
         Ok(terminal)
     }
 
-    fn teardown_terminal(&mut self) -> anyhow::Result<()> {
+    fn teardown_terminal(&mut self) -> error::Result<()> {
         crossterm::terminal::disable_raw_mode()?;
         crossterm::execute!(
             self.terminal.backend_mut(),
@@ -238,7 +241,7 @@ impl App {
 impl Drop for App {
     fn drop(&mut self) {
         if let Err(e) = self.teardown_terminal() {
-            log::warn!("failed to tear down terminal: {e}");
+            log::warn!("failed to tear down terminal: {e:?}");
         } else {
             log::debug!("tear down terminal");
         }

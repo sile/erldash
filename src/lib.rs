@@ -1,6 +1,7 @@
 //! A simple, terminal-based Erlang dashboard.
 use std::path::PathBuf;
 pub mod erlang;
+pub mod error;
 pub mod metrics;
 pub mod ui;
 
@@ -20,7 +21,7 @@ pub struct RunArgs {
 }
 
 impl RunArgs {
-    pub fn find_cookie(&self) -> anyhow::Result<String> {
+    pub fn find_cookie(&self) -> error::Result<String> {
         if let Some(cookie) = &self.cookie {
             Ok(cookie.clone())
         } else {
