@@ -257,7 +257,7 @@ impl MSAccThread {
         let mut thread_id = None;
         let mut thread_type = None;
         let mut counters = BTreeMap::new();
-        for (k, v) in map.entries {
+        for (k, v) in map.map {
             match term_to_atom(k)?.name.as_str() {
                 "id" => {
                     thread_id = Some(term_to_u64(v)?);
@@ -269,7 +269,7 @@ impl MSAccThread {
                     let counters_map: Map = v
                         .try_into()
                         .map_err(|x| anyhow::anyhow!("expected a map, but got {x}"))?;
-                    for (k, v) in counters_map.entries {
+                    for (k, v) in counters_map.map {
                         counters.insert(term_to_atom(k)?.name, term_to_u64(v)?);
                     }
                 }

@@ -279,7 +279,7 @@ impl UiState {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Length(3), Constraint::Min(0)].as_ref())
-            .split(f.size());
+            .split(f.area());
 
         self.render_header(f, chunks[0]);
         self.render_body(f, chunks[1]);
@@ -397,7 +397,7 @@ impl UiState {
         let table = Table::new(rows, widths)
             .header(header)
             .block(block)
-            .highlight_style(highlight_style)
+            .row_highlight_style(highlight_style)
             .highlight_symbol("> ");
         f.render_stateful_widget(table, area, &mut self.metrics_table_state);
     }
@@ -587,7 +587,7 @@ impl UiState {
         let table = Table::new(rows, widths)
             .header(header)
             .block(block)
-            .highlight_style(highlight_style)
+            .row_highlight_style(highlight_style)
             .highlight_symbol(highlight_symbol);
         f.render_stateful_widget(table, area, &mut self.detail_table_state);
     }
