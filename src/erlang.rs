@@ -15,8 +15,7 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for SystemVersion {
     type Error = nojson::JsonParseError;
 
     fn try_from(value: nojson::RawJsonValue<'text, 'raw>) -> Result<Self, Self::Error> {
-        let s: String = value.try_into()?;
-        Ok(SystemVersion(s))
+        Ok(SystemVersion(value.try_into()?))
     }
 }
 

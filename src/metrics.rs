@@ -21,7 +21,16 @@ pub struct Metrics {
 impl DisplayJson for Metrics {
     fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
         f.object(|f| {
-            f.member("timestamp", DurationJson(&self.timestamp))?;
+            let ts = &self.timestamp;
+            f.member(
+                "timestamp",
+                JsonFn(|f: &mut nojson::JsonFormatter<'_, '_>| {
+                    f.object(|f| {
+                        f.member("secs", ts.as_secs())?;
+                        f.member("nanos", ts.subsec_nanos())
+                    })
+                }),
+            )?;
             f.member("items", &self.items)
         })
     }
@@ -35,17 +44,6 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for Metrics {
         let items: BTreeMap<String, MetricValue> =
             value.to_member("items")?.required()?.try_into()?;
         Ok(Metrics { timestamp, items })
-    }
-}
-
-struct DurationJson<'a>(&'a Duration);
-
-impl DisplayJson for DurationJson<'_> {
-    fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
-        f.object(|f| {
-            f.member("secs", self.0.as_secs())?;
-            f.member("nanos", self.0.subsec_nanos())
-        })
     }
 }
 
