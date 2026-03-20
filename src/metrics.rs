@@ -24,7 +24,7 @@ impl DisplayJson for Metrics {
             let ts = &self.timestamp;
             f.member(
                 "timestamp",
-                JsonFn(|f: &mut nojson::JsonFormatter<'_, '_>| {
+                nojson::json(|f| {
                     f.object(|f| {
                         f.member("secs", ts.as_secs())?;
                         f.member("nanos", ts.subsec_nanos())
@@ -122,14 +122,6 @@ pub enum MetricValue {
     },
 }
 
-struct JsonFn<F>(F);
-
-impl<F: Fn(&mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result> DisplayJson for JsonFn<F> {
-    fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
-        (self.0)(f)
-    }
-}
-
 impl DisplayJson for MetricValue {
     fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
         f.object(|f| match self {
@@ -137,7 +129,7 @@ impl DisplayJson for MetricValue {
                 let (value, parent) = (*value, parent);
                 f.member(
                     "Gauge",
-                    JsonFn(move |f: &mut nojson::JsonFormatter<'_, '_>| {
+                    nojson::json(move |f| {
                         f.object(|f| {
                             f.member("value", value)?;
                             f.member("parent", parent)
@@ -153,7 +145,7 @@ impl DisplayJson for MetricValue {
                 let (raw_value, value, parent) = (*raw_value, value, parent);
                 f.member(
                     "Counter",
-                    JsonFn(move |f: &mut nojson::JsonFormatter<'_, '_>| {
+                    nojson::json(move |f| {
                         f.object(|f| {
                             f.member("raw_value", raw_value)?;
                             f.member("value", value)?;
@@ -166,7 +158,7 @@ impl DisplayJson for MetricValue {
                 let (value, parent) = (*value, parent);
                 f.member(
                     "Utilization",
-                    JsonFn(move |f: &mut nojson::JsonFormatter<'_, '_>| {
+                    nojson::json(move |f| {
                         f.object(|f| {
                             f.member("value", value)?;
                             f.member("parent", parent)
