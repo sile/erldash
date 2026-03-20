@@ -14,7 +14,7 @@ readme = "README.md"
 [dependencies]
 anyhow = "1"
 chrono = "0.4.31"
-clap = { version = "4", features = ["derive"] }
+noargs = "0.4"
 crossterm = "0.27"
 dirs = "5"
 erl_dist = "0.6"
