@@ -104,10 +104,9 @@ impl App {
     fn handle_event(&mut self) -> error::Result<bool> {
         while crossterm::event::poll(std::time::Duration::from_secs(0))? {
             match crossterm::event::read()? {
-                crossterm::event::Event::Key(key)
-                    if self.handle_key_event(key)? => {
-                        return Ok(true);
-                    }
+                crossterm::event::Event::Key(key) if self.handle_key_event(key)? => {
+                    return Ok(true);
+                }
                 crossterm::event::Event::Resize(_, _) => {
                     self.render_ui()?;
                 }
