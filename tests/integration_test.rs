@@ -47,10 +47,9 @@ fn connect_and_poll_metrics() {
         let atom_count = client.get_system_info_u64("atom_count").await?;
         assert!(atom_count > 0);
 
-        let old = client
+        let _old = client
             .set_system_flag_bool("microstate_accounting", "true")
             .await?;
-        assert!(!old || old); // just check it returns a bool without error
 
         let run_queues = client
             .get_statistics_u64_list("run_queue_lengths_all")
